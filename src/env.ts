@@ -139,6 +139,92 @@ export function vercelSystemEnv(opts: VercelEnvOptions): Record<string, string> 
   return env
 }
 
+/**
+ * Refuse to forward a value that points at production.
+ *
+ * The VM is a development sandbox, but the app still honours DATABASE_URL. If a
+ * prod DSN reached the VM, a stray migration or script could write to the real
+ * database. Blocking known production host patterns makes that impossible rather
+ * than merely discouraged.
+ */
+const PROD_HOST_PATTERNS: { re: RegExp; label: string }[] = [
+  // Vercel Postgres / Neon
+  { re: /\.neon\.tech/i, label: 'Neon (Vercel Postgres)' },
+  { re: /\.supabase\.(co|com)/i, label: 'Supabase' },
+  // AWS
+  { re: /\.rds\.amazonaws\.com/i, label: 'AWS RDS' },
+  { re: /\.amazonaws\.com/i, label: 'AWS' },
+  // Railway / Render / Fly
+  // Matched on a host boundary, not just a leading dot: these databases appear
+  // as `railway.app`, `prod-X.railway.app`, etc., usually right after `@`.
+  { re: /(^|@|\/\/|\.)railway\.app/i, label: 'Railway' },
+  { re: /(^|@|\/\/|\.)onrender\.com/i, label: 'Render' },
+  { re: /(^|@|\/\/|\.)fly\.dev/i, label: 'Fly.io' },
+  // Planetscale / generic cloud SQL
+  { re: /\.planetscale\.com/i, label: 'PlanetScale' },
+  { re: /\.cloudsql\./i, label: 'Cloud SQL' },
+  // Production web hosts
+  { re: /\.axxes\.club/i, label: 'axxes.club production' },
+]
+
+/** A key whose value must never point at production from inside the VM. */
+const GUARDED_KEYS = /^(DATABASE_URL|POSTGRES_URL|MYSQL_URL|DB_URL|PG_URL|DIRECT_URL)$/i
+
+export interface GuardResult {
+  safe: boolean
+  reason?: string
+}
+
+/**
+ * Check a single env value for production risk.
+ *
+ * Local addresses (localhost, 127.0.0.1, 0.0.0.0, host.docker.internal) and
+ * relative SQLite paths are always allowed.
+ */
+export function guardEnvValue(key: string, value: string): GuardResult {
+  if (!GUARDED_KEYS.test(key)) return { safe: true }
+
+  // SQLite and other file paths are inherently local.
+  if (/^(file:|sqlite:|\.?\.?\/)/i.test(value.trim())) return { safe: true }
+
+  const isLocal = /@(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|host\.docker\.internal|host\.orb\.internal)([:/]|$)/i.test(value)
+  if (isLocal) return { safe: true }
+
+  for (const { re, label } of PROD_HOST_PATTERNS) {
+    if (re.test(value)) {
+      return {
+        safe: false,
+        reason: `${key} points at ${label}. Refusing to send production credentials into the VM.`,
+      }
+    }
+  }
+
+  return { safe: true }
+}
+
+/**
+ * Filter an env map, dropping any value that would expose production.
+ * Returns the rejected entries so the caller can report them.
+ */
+export function guardEnv(env: Record<string, string>): {
+  safe: Record<string, string>
+  rejected: { key: string; reason: string }[]
+} {
+  const safe: Record<string, string> = {}
+  const rejected: { key: string; reason: string }[] = []
+
+  for (const [key, value] of Object.entries(env)) {
+    const result = guardEnvValue(key, value)
+    if (result.safe) {
+      safe[key] = value
+    } else {
+      rejected.push({ key, reason: result.reason ?? 'unsafe value' })
+    }
+  }
+
+  return { safe, rejected }
+}
+
 /** Escape a value for safe use inside a single-quoted shell string. */
 export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`

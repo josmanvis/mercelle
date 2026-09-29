@@ -88,8 +88,16 @@ export class Orb implements VmBackend {
   /** True when the orb binary can be found. */
   async isInstalled(): Promise<boolean> {
     if (this.bin !== 'orb' && this.bin.includes('/')) return existsSync(this.bin)
-    const res = await this.exec(['version'], { allowFailure: true })
-    return res.code === 0
+    try {
+      const res = await this.exec(['version'], { allowFailure: true })
+      return res.code === 0
+    } catch (err) {
+      // exec() rejects with OrbStackMissingError when the binary is absent.
+      // isInstalled() is a probe, so report "no" instead of propagating — this
+      // is what lets the backend factory fall back to another runtime.
+      if (err instanceof OrbStackMissingError) return false
+      throw err
+    }
   }
 
   /** Run an `orb` subcommand and capture output. Throws unless `allowFailure`. */

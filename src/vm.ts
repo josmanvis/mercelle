@@ -5,7 +5,15 @@ import { MercelleError } from './errors.js'
 import { c, consoleLogger } from './logger.js'
 import type { Logger, MercelleConfig, ResolvedProject, VmBackend } from './types.js'
 
-/** Files and directories never copied into the VM. */
+/**
+ * Files and directories never copied into the VM.
+ *
+ * These are both build artifacts and, critically, credential-bearing files.
+ * `.env*` must never be synced: those files can hold live production secrets
+ * (VERCEL_OIDC_TOKEN, CLERK_SECRET_KEY, DATABASE_URL) and copying them into a
+ * VM would move prod credentials off the developer's machine. Environment
+ * values are injected explicitly and selectively by mercelle instead.
+ */
 export const DEFAULT_IGNORES = [
   '.git',
   'node_modules',
@@ -21,6 +29,13 @@ export const DEFAULT_IGNORES = [
   '.DS_Store',
   'coverage',
   '.vercel',
+  // Never ship secrets into the VM.
+  '.env',
+  '.env.*',
+  '*.pem',
+  '*.key',
+  'secrets.json',
+  'service-account*.json',
 ]
 
 /** Node version installed inside the VM. Kept in one place so it is easy to bump. */

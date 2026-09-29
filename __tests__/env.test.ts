@@ -2,7 +2,83 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { loadEnvFiles, parseDotenv, shellQuote, toEnvPrefix, vercelSystemEnv } from '../src/env.js'
+import {
+  guardEnv,
+  guardEnvValue,
+  loadEnvFiles,
+  parseDotenv,
+  shellQuote,
+  toEnvPrefix,
+  vercelSystemEnv,
+} from '../src/env.js'
+
+describe('guardEnvValue', () => {
+  it('allows local SQLite file paths', () => {
+    expect(guardEnvValue('DATABASE_URL', 'file:./dev.db').safe).toBe(true)
+    expect(guardEnvValue('DATABASE_URL', './data.db').safe).toBe(true)
+    expect(guardEnvValue('DATABASE_URL', 'sqlite:./local.db').safe).toBe(true)
+  })
+
+  it('allows localhost connections', () => {
+    expect(guardEnvValue('DATABASE_URL', 'postgresql://user:pw@localhost:5432/app').safe).toBe(true)
+    expect(guardEnvValue('DATABASE_URL', 'postgresql://user:pw@127.0.0.1:5432/app').safe).toBe(true)
+  })
+
+  it('blocks Neon / Vercel Postgres production URLs', () => {
+    const res = guardEnvValue('DATABASE_URL', 'postgresql://u:p@ep-cool-name-123456.us-east-2.aws.neon.tech/db?sslmode=require')
+    expect(res.safe).toBe(false)
+    expect(res.reason).toMatch(/Neon/i)
+  })
+
+  it('blocks Supabase, Railway, Render and Fly', () => {
+    expect(guardEnvValue('DATABASE_URL', 'postgresql://u:p@db.abc.supabase.co:5432/postgres').safe).toBe(false)
+    expect(guardEnvValue('DATABASE_URL', 'postgresql://u:p@railway.app:5432/app').safe).toBe(false)
+    expect(guardEnvValue('DATABASE_URL', 'postgresql://u:p@svc.onrender.com/app').safe).toBe(false)
+    expect(guardEnvValue('DATABASE_URL', 'postgresql://u:p@db.fly.dev/app').safe).toBe(false)
+  })
+
+  it('blocks AWS RDS production URLs', () => {
+    expect(guardEnvValue('DATABASE_URL', 'mysql://u:p@inst.abc.us-east-1.rds.amazonaws.com:3306/app').safe).toBe(false)
+  })
+
+  it('blocks production axxes.club hosts', () => {
+    expect(guardEnvValue('DATABASE_URL', 'postgresql://u:p@db.axxes.club:5432/app').safe).toBe(false)
+  })
+
+  it('guards every DSN-shaped key', () => {
+    for (const key of ['DATABASE_URL', 'POSTGRES_URL', 'DB_URL', 'PG_URL', 'DIRECT_URL']) {
+      expect(guardEnvValue(key, 'postgresql://u:p@ep-x.neon.tech/db').safe, key).toBe(false)
+    }
+  })
+
+  it('does not guard unrelated keys', () => {
+    expect(guardEnvValue('STRIPE_SECRET_KEY', 'sk_live_abc123').safe).toBe(true)
+    expect(guardEnvValue('NEXT_PUBLIC_VERCEL_URL', 'https://axxes.club').safe).toBe(true)
+    expect(guardEnvValue('CLERK_SECRET_KEY', 'sk_test_x').safe).toBe(true)
+  })
+})
+
+describe('guardEnv', () => {
+  it('keeps safe values and reports the rejected ones', () => {
+    const { safe, rejected } = guardEnv({
+      PORT: '3000',
+      DATABASE_URL: 'postgresql://u:p@localhost:5432/app',
+      DIRECT_URL: 'postgresql://u:p@ep-x.neon.tech/db',
+    })
+
+    expect(safe.PORT).toBe('3000')
+    expect(safe.DATABASE_URL).toContain('localhost')
+    expect(safe.DIRECT_URL).toBeUndefined()
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0]?.key).toBe('DIRECT_URL')
+  })
+
+  it('returns an empty rejection list when everything is safe', () => {
+    const { rejected } = guardEnv({ A: '1', DATABASE_URL: 'file:./dev.db' })
+    expect(rejected).toEqual([])
+  })
+})
+
 
 describe('parseDotenv', () => {
   it('parses simple assignments', () => {

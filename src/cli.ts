@@ -108,6 +108,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       return 0
     }
 
+    case 'stack': {
+      const { stackCommand } = await import('./stackCommand.js')
+      return stackCommand({ cwd, config, orb, logger: log })
+    }
+
     case 'doctor':
       return doctor({ config, cwd, orb, logger: log })
 

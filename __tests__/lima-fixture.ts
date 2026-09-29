@@ -28,6 +28,12 @@ const write = (m) => writeFileSync(machinesFile, JSON.stringify(m))
 
 if (cmd === '--version') { console.log('limactl version 2.2.0'); process.exit(0) }
 
+if (cmd === 'create' && argv.includes('--list-drivers')) {
+  // This machine is Intel: Lima offers only qemu here.
+  console.log('qemu')
+  process.exit(0)
+}
+
 if (cmd === 'list') {
   if (argv.includes('--json')) {
     console.log(JSON.stringify({ instances: read().map((n) => ({ name: n })) }))

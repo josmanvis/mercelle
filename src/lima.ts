@@ -28,6 +28,62 @@ const LIMA_TEMPLATES: Record<string, string> = {
 }
 
 /**
+ * Normalise a disk size to the number of GiB that `limactl create --disk`
+ * expects (the flag is a bare float32, in GiB).
+ *
+ * The config uses OrbStack/Vercel-style sizes like `64GB`; Lima takes neither
+ * a unit suffix nor `GB`.
+ */
+export function toLimaDiskGiB(size: string): number {
+  const match = /^\s*(\d+(?:\.\d+)?)\s*([kmgt]?i?b?)\s*$/i.exec(size)
+  if (!match) return 64
+
+  const value = Number(match[1])
+  const unit = (match[2] ?? 'GiB').toLowerCase()
+
+  // Convert to GiB. Binary units divide straight down; decimal units are ~7% smaller.
+  const toGiB: Record<string, number> = {
+    b: 1 / 1024 ** 3,
+    kb: 1 / 1024 ** 2,
+    mb: 1 / 1024,
+    gb: 1,
+    tb: 1024,
+    kib: 1 / 1024 ** 2,
+    mib: 1 / 1024,
+    gib: 1,
+    tib: 1024,
+  }
+  const gib = value * (toGiB[unit] ?? 1)
+  // Keep at least 1GiB: QEMU/Lima cannot create a usable disk below that, and a
+  // fractional request would otherwise round to zero and fail.
+  return gib < 1 ? 1 : Math.round(gib * 10) / 10
+}
+
+/**
+ * Decide which Lima VM driver to use.
+ *
+ * Lima defaults to `vz` (Apple Virtualization.framework), which exists only on
+ * Apple Silicon. Intel Macs must use `qemu`. Ask Lima which drivers it actually
+ * supports and fall back to `qemu`, the portable option.
+ */
+export function detectVmType(exec: (args: string[]) => { code: number; stdout: string }): string {
+  try {
+    const res = exec(['create', '--list-drivers'])
+    const drivers = res.stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+
+    // Prefer vz when offered (faster); otherwise qemu.
+    if (drivers.includes('vz')) return 'vz'
+    if (drivers.includes('qemu')) return 'qemu'
+  } catch {
+    // fall through to the safe default
+  }
+  return 'qemu'
+}
+
+/**
  * Lima backend: runs a real Linux VM using QEMU/virtualization.framework.
  *
  * This is the fallback for Intel Macs that cannot run OrbStack (OrbStack needs
@@ -82,17 +138,22 @@ export class Lima implements VmBackend {
 
   async create(machine: string, distro: string, opts: { cpus?: number; memory?: number; disk?: string } = {}): Promise<void> {
     const template = LIMA_TEMPLATES[distro] ?? 'ubuntu'
+    // `vz` only exists on Apple Silicon; Intel Macs need `qemu`.
+    const vmType = detectVmType((args) => this.raw(args, { allowFailure: true }))
     const args = [
       'create',
       '--name',
       machine,
       '--tty=false',
+      `--vm-type=${vmType}`,
       `--cpus=${opts.cpus ?? 4}`,
       `--memory=${opts.memory ?? 8}`,
-      `--disk=${opts.disk ?? '64GiB'}`,
-      `template://${template}`,
+      // `--disk` is a bare number of GiB; it rejects any unit suffix.
+      `--disk=${toLimaDiskGiB(opts.disk ?? '64GB')}`,
+      // Lima 2.x expects `template:ubuntu`; the `://` form is deprecated.
+      `template:${template}`,
     ]
-    this.log.step(`Creating Lima VM ${machine} (${template})…`)
+    this.log.step(`Creating Lima VM ${machine} (${template}, ${vmType})…`)
     this.raw(args)
   }
 

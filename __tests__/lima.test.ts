@@ -2,10 +2,40 @@ import { describe, expect, it } from 'vitest'
 import { createBackend } from '../src/backend.js'
 import { defaultConfig } from '../src/config.js'
 import { MercelleError } from '../src/errors.js'
-import { Lima } from '../src/lima.js'
+import { Lima, toLimaDiskGiB } from '../src/lima.js'
 import { Orb } from '../src/orb.js'
 import { silentLogger } from './helpers.js'
 import { createFakeLima } from './lima-fixture.js'
+
+describe('toLimaDiskGiB', () => {
+  it('converts the default OrbStack-style size to a bare GiB number', () => {
+    // Regression: `limactl --disk` is a float32 in GiB and rejects "64GB"
+    // and "64GiB" alike, so the unit must be stripped.
+    expect(toLimaDiskGiB('64GB')).toBe(64)
+    expect(toLimaDiskGiB('64GiB')).toBe(64)
+  })
+
+  it('converts other units to GiB', () => {
+    expect(toLimaDiskGiB('2TB')).toBe(2048)
+    expect(toLimaDiskGiB('1TiB')).toBe(1024)
+    expect(toLimaDiskGiB('128GB')).toBe(128)
+  })
+
+  it('clamps tiny disks up to 1GiB', () => {
+    // A sub-1GiB disk is not usable under QEMU, so the floor is deliberate.
+    expect(toLimaDiskGiB('512MB')).toBe(1)
+    expect(toLimaDiskGiB('100MB')).toBe(1)
+  })
+
+  it('tolerates spacing and decimals', () => {
+    expect(toLimaDiskGiB(' 32 GB ')).toBe(32)
+    expect(toLimaDiskGiB('1.5GB')).toBe(1.5)
+  })
+
+  it('never returns less than 1GiB', () => {
+    expect(toLimaDiskGiB('garbage')).toBe(64)
+  })
+})
 
 describe('Lima backend', () => {
   it('detects the limactl binary', async () => {
@@ -34,8 +64,17 @@ describe('Lima backend', () => {
     await lima.create('vm-fedora', 'fedora')
 
     // 'alma' must become Lima's 'almalinux' template, not 'alma'.
-    expect(fake.calls()).toContain('template://almalinux')
-    expect(fake.calls()).toContain('template://fedora')
+    expect(fake.calls()).toContain('template:almalinux')
+    expect(fake.calls()).toContain('template:fedora')
+  })
+
+  it('selects the qemu driver when vz is unavailable', async () => {
+    // Regression: `vz` is Apple-Silicon-only; Intel Macs must get `qemu`.
+    const fake = createFakeLima()
+    const lima = new Lima({ bin: fake.shim, logger: silentLogger })
+    await lima.create('vm', 'ubuntu')
+
+    expect(fake.calls()).toContain('--vm-type=qemu')
   })
 
   it('passes resource flags through to create', async () => {

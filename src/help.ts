@@ -10,6 +10,7 @@ ${c.bold('Usage')}
 
 ${c.bold('Commands')}
   dev              Run the dev server inside the VM (default)
+  stack            Boot every service in a workspace inside the VM
   up               Create the VM and install the toolchain
   build            Run the production build inside the VM
   shell            Open a shell in the VM

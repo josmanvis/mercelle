@@ -93,6 +93,14 @@ describe('Orb (against a real fake binary)', () => {
     expect(fake.stdinBytes()).toBe(2048)
   })
 
+  it('reports installation as false, not a throw, when the binary is absent', async () => {
+    // Regression: exec() rejects with OrbStackMissingError on ENOENT, so
+    // isInstalled() must catch it — otherwise the backend factory can never
+    // fall back to another runtime like Lima.
+    const missing = new Orb({ bin: '/definitely/not/here/orb', logger: silentLogger })
+    expect(await missing.isInstalled()).toBe(false)
+  })
+
   it('surfaces ENOENT as OrbStackMissingError', async () => {
     const missing = new Orb({ bin: '/definitely/not/here/orb', logger: silentLogger })
     await expect(missing.exec(['version'])).rejects.toBeInstanceOf(OrbStackMissingError)

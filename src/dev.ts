@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { createBackend } from './backend.js'
-import { loadEnvFiles, toEnvPrefix, vercelSystemEnv } from './env.js'
+import { guardEnv, loadEnvFiles, toEnvPrefix, vercelSystemEnv } from './env.js'
 import { MercelleError } from './errors.js'
 import { c, consoleLogger } from './logger.js'
 import { resolveProject } from './project.js'
@@ -40,7 +40,7 @@ export function buildAppEnv(
     if (value !== undefined) forwarded[key] = value
   }
 
-  return {
+  const merged = {
     ...vercelSystemEnv({
       projectName: project.machine.replace(/^mercelle-/, ''),
       framework: project.framework,
@@ -54,6 +54,43 @@ export function buildAppEnv(
     ...forwarded,
     ...config.env,
   }
+
+  // Strip anything that would give the VM a production database or host.
+  return guardEnv(merged).safe
+}
+
+/**
+ * Like buildAppEnv, but also reports values dropped by the production guard.
+ * The CLI uses this so a blocked credential is visible rather than silent.
+ */
+export function buildAppEnvWithReport(
+  project: ResolvedProject,
+  config: MercelleConfig,
+  hostPort: number,
+): { env: Record<string, string>; rejected: { key: string; reason: string }[] } {
+  const fileEnv = loadEnvFiles(project.root)
+  const forwarded: Record<string, string> = {}
+  for (const key of config.forwardEnv) {
+    const value = process.env[key]
+    if (value !== undefined) forwarded[key] = value
+  }
+
+  const { safe, rejected } = guardEnv({
+    ...vercelSystemEnv({
+      projectName: project.machine.replace(/^mercelle-/, ''),
+      framework: project.framework,
+      machine: project.machine,
+      port: config.port,
+      hostPort,
+      region: config.region,
+      root: project.root,
+    }),
+    ...fileEnv,
+    ...forwarded,
+    ...config.env,
+  })
+
+  return { env: safe, rejected }
 }
 
 /**
@@ -101,7 +138,12 @@ export async function dev(opts: DevOptions): Promise<DevResult> {
   // Backends that forward ports automatically make this a no-op.
   await orb.setHttpPort?.(project.machine, hostPort)
 
-  const env = buildAppEnv(project, config, hostPort)
+  const { env, rejected } = buildAppEnvWithReport(project, config, hostPort)
+
+  // Tell the user loudly if a production credential was withheld.
+  for (const r of rejected) {
+    log.warn(`${r.reason}`)
+  }
 
   // OrbStack exposes a per-machine hostname; other backends only forward ports.
   const isOrbStack = orb.name === 'orbstack'

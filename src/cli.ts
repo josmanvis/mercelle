@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { createBackend } from './backend.js'
 import { parseArgs } from './args.js'
 import { dev } from './dev.js'
 import { doctor } from './doctor.js'
@@ -33,8 +36,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   if (flags.watch === false) config.watch = false
   if (flags.once) config.once = true
 
-  const orb = new Orb({ bin: config.orbBin, dryRun: config.dryRun })
   const log = consoleLogger
+  const orb = await createBackend(config, log)
 
   switch (command) {
     case 'dev': {
@@ -58,7 +61,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       const remoteRoot = await vm.remoteRoot()
       await vm.syncToVm(remoteRoot)
       await vm.installDeps(remoteRoot)
-      const res = await orb.runInMachine(project.machine, `cd '${remoteRoot}' && ${project.buildCommand}`, {
+      const res = await orb.run(project.machine, `cd '${remoteRoot}' && ${project.buildCommand}`, {
         stream: true,
       })
       return res.code
@@ -66,8 +69,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
     case 'shell': {
       const project = resolveProject(cwd)
-      await orb.ensureRunning(project.machine)
-      await orb.shell(project.machine)
+      await orb.start(project.machine)
+      // Both backends attach an interactive shell to the running VM.
+      await orb.run(project.machine, 'exec bash -l', { stream: true })
       return 0
     }
 
@@ -81,9 +85,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
     case 'status': {
       const project = resolveProject(cwd)
-      const exists = await orb.machineExists(project.machine)
+      const exists = (await orb.list()).includes(project.machine)
       const port = config.hostPort ?? config.port
       console.log(`VM:        ${project.machine} (${exists ? 'exists' : 'not created'})`)
+      console.log(`Backend:   ${orb.name}`)
       console.log(`Framework: ${project.framework}`)
       console.log(`URL:       http://localhost:${port}`)
       return exists ? 0 : 1
@@ -98,7 +103,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
     case 'destroy': {
       const project = resolveProject(cwd)
-      await orb.deleteMachine(project.machine)
+      await orb.remove(project.machine)
       log.success(`Deleted ${project.machine}.`)
       return 0
     }
@@ -113,11 +118,36 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   }
 }
 
-// Only run when invoked directly, so tests can import `main` safely.
-const invokedDirectly =
-  process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`
+/**
+ * True when this module is the process entrypoint.
+ *
+ * Compares *realpath*-resolved paths: when installed via `npm link` (or any
+ * symlinked bin), `process.argv[1]` is the symlink while `import.meta.url` is
+ * the real file, so a plain string comparison would silently never match and
+ * the CLI would do nothing.
+ */
+function isEntryPoint(): boolean {
+  const entry = process.argv[1]
+  if (!entry) return false
 
-if (invokedDirectly) {
+  // fileURLToPath avoids percent-encoding issues with spaces in the path.
+  const self = fileURLToPath(import.meta.url)
+
+  const real = (p: string): string => {
+    try {
+      return realpathSync(p)
+    } catch {
+      return p
+    }
+  }
+
+  if (real(entry) === real(self)) return true
+
+  // `npm link` points at dist/cli.js, but also allow running the source via tsx.
+  return real(entry) === real(self.replace(/\.js$/, '.ts'))
+}
+
+if (isEntryPoint()) {
   main()
     .then((code) => process.exit(code))
     .catch((err: unknown) => {

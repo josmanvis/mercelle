@@ -17,6 +17,8 @@ export const VALUE_FLAGS = new Set([
   'sync',
   'package-manager',
   'orb-bin',
+  'lima-bin',
+  'backend',
   'region',
   'forward',
 ])
@@ -32,6 +34,8 @@ const FLAG_TO_KEY: Record<string, keyof MercelleConfig> = {
   sync: 'sync',
   'package-manager': 'packageManager',
   'orb-bin': 'orbBin',
+  'lima-bin': 'limaBin',
+  backend: 'backend',
   region: 'region',
   forward: 'forwardEnv',
 }

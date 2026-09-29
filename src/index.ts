@@ -5,6 +5,8 @@
  */
 
 export { main } from './cli.js'
+export { createBackend } from './backend.js'
+export { Lima, type LimaOptions } from './lima.js'
 export { dev, buildAppEnv, type DevOptions, type DevResult } from './dev.js'
 export { doctor, type DoctorOptions } from './doctor.js'
 export { configSchema, defaultConfig, mergeFlags, parseConfig, type ConfigInput } from './config.js'
@@ -54,10 +56,12 @@ export { watchProject, type WatcherHandle, type WatchOptions } from './watch.js'
 export { HELP, VERSION } from './help.js'
 export type {
   Distro,
+  Backend,
   Framework,
   PackageManager,
   MercelleConfig,
   ResolvedProject,
   OrbResult,
+  VmBackend,
   Logger,
 } from './types.js'

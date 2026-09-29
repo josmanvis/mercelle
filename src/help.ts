@@ -32,6 +32,8 @@ ${c.bold('Options')}
   --region <id>        Vercel region                (default iad1)
   --forward <list>     Comma-separated host env vars to forward
   --orb-bin <path>     Path to the orb binary
+  --backend <name>      orbstack | lima | auto            (default auto)
+  --lima-bin <path>     Path to the limactl binary
   --fresh              Recreate the VM
   --reinstall          Reinstall deps in the VM
   --no-watch           Disable watching

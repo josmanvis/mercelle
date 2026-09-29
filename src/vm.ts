@@ -3,8 +3,7 @@ import { lstatSync } from 'node:fs'
 import { join } from 'node:path'
 import { MercelleError } from './errors.js'
 import { c, consoleLogger } from './logger.js'
-import { Orb } from './orb.js'
-import type { Logger, MercelleConfig, ResolvedProject } from './types.js'
+import type { Logger, MercelleConfig, ResolvedProject, VmBackend } from './types.js'
 
 /** Files and directories never copied into the VM. */
 export const DEFAULT_IGNORES = [
@@ -36,7 +35,7 @@ export function macPathInVm(macPath: string): string {
 }
 
 export interface VmManagerOptions {
-  orb: Orb
+  orb: VmBackend
   config: MercelleConfig
   project: ResolvedProject
   logger?: Logger
@@ -63,7 +62,7 @@ export function shellQuote(value: string): string {
  * toolchain in it, and keep the project mirrored inside it.
  */
 export class VmManager {
-  private readonly orb: Orb
+  private readonly orb: VmBackend
   private readonly config: MercelleConfig
   private readonly project: ResolvedProject
   private readonly log: Logger
@@ -81,12 +80,12 @@ export class VmManager {
    */
   async ensureMachine(): Promise<{ created: boolean }> {
     const { machine } = this.project
-    const exists = await this.orb.machineExists(machine)
+    const exists = (await this.orb.list()).includes(machine)
 
     if (exists && this.config.fresh) {
       this.log.info(`Rebuilding VM ${c.bold(machine)} (--fresh)…`)
-      await this.orb.deleteMachine(machine)
-      await this.orb.createMachine(machine, this.config.distro, {
+      await this.orb.remove(machine)
+      await this.orb.create(machine, this.config.distro, {
         cpus: this.config.cpus,
         memory: this.config.memory,
         disk: this.config.disk,
@@ -100,7 +99,7 @@ export class VmManager {
         throw new MercelleError(`VM ${machine} is missing and reuse is disabled.`, ['Run `mercelle up` first.'])
       }
       this.log.info(`Creating ${c.bold(this.config.distro)} VM ${c.bold(machine)}…`)
-      await this.orb.createMachine(machine, this.config.distro, {
+      await this.orb.create(machine, this.config.distro, {
         cpus: this.config.cpus,
         memory: this.config.memory,
         disk: this.config.disk,
@@ -116,14 +115,14 @@ export class VmManager {
 
   /** The VM user's home directory, resolved at runtime. */
   async getHome(): Promise<string> {
-    const res = await this.orb.runInMachine(this.project.machine, 'echo $HOME', { allowFailure: true })
+    const res = await this.orb.run(this.project.machine, 'echo $HOME', { allowFailure: true })
     const home = res.stdout.trim()
     return home || '/home/mercelle'
   }
 
   /** True when the machine already has the Linux toolchain mercelle needs. */
   private async isProvisioned(): Promise<boolean> {
-    const res = await this.orb.runInMachine(
+    const res = await this.orb.run(
       this.project.machine,
       'command -v node && command -v git && command -v curl >/dev/null 2>&1',
       { allowFailure: true },
@@ -143,7 +142,7 @@ export class VmManager {
 
     const pm = this.project.packageManager
     if (pm !== 'npm') {
-      const has = await this.orb.runInMachine(this.project.machine, `command -v ${pm}`, { allowFailure: true })
+      const has = await this.orb.run(this.project.machine, `command -v ${pm}`, { allowFailure: true })
       if (has.code !== 0 || this.config.reinstall) {
         this.log.step(`Installing ${pm} in the VM…`)
         await this.installPackageManager(pm)
@@ -183,7 +182,7 @@ export class VmManager {
       'corepack enable >/dev/null 2>&1 || true',
     ].join('\n')
 
-    const res = await this.orb.runInMachine(machine, script, { stream: this.config.verbose })
+    const res = await this.orb.run(machine, script, { stream: this.config.verbose })
     if (res.code !== 0) {
       throw new MercelleError('Failed to provision the VM toolchain.', [
         res.stderr.trim().split('\n').slice(-5).join('\n') || 'The install script exited non-zero.',
@@ -195,7 +194,7 @@ export class VmManager {
   private async installPackageManager(pm: string): Promise<void> {
     const machine = this.project.machine
     const script = `set -e; . "$HOME/.nvm/nvm.sh"; corepack enable >/dev/null 2>&1 || true; corepack prepare ${pm}@latest --activate`
-    const res = await this.orb.runInMachine(machine, script, { stream: this.config.verbose })
+    const res = await this.orb.run(machine, script, { stream: this.config.verbose })
 
     if (res.code !== 0) {
       // Corepack is unavailable on some distros; fall back to the official installer.
@@ -205,7 +204,7 @@ export class VmManager {
           : pm === 'yarn'
             ? 'npm install -g yarn'
             : 'curl -fsSL https://bun.sh/install | bash'
-      const retry = await this.orb.runInMachine(machine, `set -e; . "$HOME/.nvm/nvm.sh"; ${fallback}`, {
+      const retry = await this.orb.run(machine, `set -e; . "$HOME/.nvm/nvm.sh"; ${fallback}`, {
         stream: this.config.verbose,
       })
       if (retry.code !== 0) {
@@ -270,7 +269,7 @@ export class VmManager {
       `fi`,
     ].join('\n')
 
-    const res = await this.orb.runInMachine(this.project.machine, script, { allowFailure: true })
+    const res = await this.orb.run(this.project.machine, script, { allowFailure: true })
     if (res.code !== 0) {
       throw new MercelleError('Failed to set up the Linux node_modules link for mount mode.', [
         res.stderr.trim() || 'Could not create the symlink inside the VM.',
@@ -299,8 +298,9 @@ export class VmManager {
 
     this.log.step('Syncing project into the VM…')
     const archive = createTarArchive(this.project.root, this.excludeArgs())
-    const res = await this.orb.exec(
-      ['run', '-m', this.project.machine, 'bash', '-lc', `mkdir -p ${shellQuote(remoteRoot)} && tar -x -C ${shellQuote(remoteRoot)}`],
+    const res = await this.orb.run(
+      this.project.machine,
+      `mkdir -p ${shellQuote(remoteRoot)} && tar -x -C ${shellQuote(remoteRoot)}`,
       { input: archive, stream: this.config.verbose },
     )
     if (res.code !== 0) {
@@ -324,7 +324,7 @@ export class VmManager {
         ? 'npm ci --no-audit --no-fund || npm install --no-audit --no-fund'
         : `${pm} install --frozen-lockfile || ${pm} install`
 
-    const res = await this.orb.runInMachine(
+    const res = await this.orb.run(
       this.project.machine,
       `cd ${shellQuote(remoteRoot)} && ${command}`,
       // allowFailure so a failed install surfaces mercelle's own actionable

@@ -1,15 +1,14 @@
 import { existsSync } from 'node:fs'
-import { OrbStackMissingError } from './errors.js'
+import { isPortOpen } from './orb.js'
 import { c, consoleLogger } from './logger.js'
-import { Orb } from './orb.js'
 import { resolveProject } from './project.js'
-import type { Logger, MercelleConfig } from './types.js'
+import type { Logger, MercelleConfig, VmBackend } from './types.js'
 import { NODE_VERSION } from './vm.js'
 
 export interface DoctorOptions {
   config: MercelleConfig
   cwd: string
-  orb: Orb
+  orb: VmBackend
   logger?: Logger
 }
 
@@ -31,23 +30,14 @@ export async function doctor(opts: DoctorOptions): Promise<number> {
   const { config, orb, cwd } = opts
   const checks: Check[] = []
 
-  // 1. OrbStack availability.
-  let installed = false
-  try {
-    installed = await orb.isInstalled()
-    checks.push({
-      name: 'OrbStack',
-      ok: installed,
-      detail: installed ? `found at ${orb.bin}` : 'not found',
-      fatal: true,
-    })
-  } catch (err) {
-    if (err instanceof OrbStackMissingError) {
-      checks.push({ name: 'OrbStack', ok: false, detail: 'not installed', fatal: true })
-    } else {
-      checks.push({ name: 'OrbStack', ok: false, detail: (err as Error).message, fatal: true })
-    }
-  }
+  // 1. Backend availability.
+  const installed = await orb.isInstalled()
+  checks.push({
+    name: orb.name === 'orbstack' ? 'OrbStack' : 'Lima',
+    ok: installed,
+    detail: installed ? `${orb.name} backend ready` : 'not found',
+    fatal: true,
+  })
 
   // 2. Project detection.
   let machine = ''
@@ -66,7 +56,7 @@ export async function doctor(opts: DoctorOptions): Promise<number> {
 
   // 3. VM existence (only meaningful once OrbStack is available).
   if (installed && machine) {
-    const exists = await orb.machineExists(machine)
+    const exists = await (await orb.list()).includes(machine)
     checks.push({
       name: 'VM',
       ok: exists,
@@ -75,7 +65,7 @@ export async function doctor(opts: DoctorOptions): Promise<number> {
     })
 
     if (exists) {
-      const node = await orb.runInMachine(machine, 'node -v', { allowFailure: true })
+      const node = await orb.run(machine, 'node -v', { allowFailure: true })
       checks.push({
         name: `Node ${NODE_VERSION} in VM`,
         ok: node.code === 0,
@@ -83,7 +73,7 @@ export async function doctor(opts: DoctorOptions): Promise<number> {
         fatal: false,
       })
 
-      const home = await orb.runInMachine(machine, 'echo $HOME', { allowFailure: true })
+      const home = await orb.run(machine, 'echo $HOME', { allowFailure: true })
       checks.push({
         name: 'VM filesystem',
         ok: home.code === 0 && home.stdout.trim().startsWith('/'),
@@ -95,7 +85,7 @@ export async function doctor(opts: DoctorOptions): Promise<number> {
 
   // 4. Port availability on the host.
   const hostPort = config.hostPort ?? config.port
-  const portFree = !(await Orb.isPortOpen(hostPort))
+  const portFree = !(await isPortOpen(hostPort))
   checks.push({
     name: `Port ${hostPort}`,
     ok: portFree,

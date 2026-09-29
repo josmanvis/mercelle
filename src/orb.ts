@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { MercelleError, OrbCommandError, OrbStackMissingError } from './errors.js'
 import { c, consoleLogger } from './logger.js'
-import type { Distro, Logger, OrbResult } from './types.js'
+import type { Distro, Logger, OrbResult, VmBackend } from './types.js'
 
 export interface OrbOptions {
   /** Path to the `orb` binary. Defaults to `orb` on PATH. */
@@ -11,7 +11,6 @@ export interface OrbOptions {
   /** Print commands instead of running them. */
   dryRun?: boolean
 }
-
 export interface RunOptions {
   /** Stream output live to the terminal. */
   stream?: boolean
@@ -35,7 +34,8 @@ export interface RunOptions {
  * mercelle works with any OrbStack version that supports the `orb` command
  * surface, and can be tested against a stub binary.
  */
-export class Orb {
+export class Orb implements VmBackend {
+  readonly name = 'orbstack'
   readonly bin: string
   private readonly log: Logger
   private readonly dryRun: boolean
@@ -44,6 +44,39 @@ export class Orb {
     this.bin = opts.bin ?? process.env.MERCELLE_ORB_BIN ?? 'orb'
     this.log = opts.logger ?? consoleLogger
     this.dryRun = opts.dryRun ?? false
+  }
+
+  /** Lines of guidance shown when OrbStack is missing. */
+  installHint(): string[] {
+    return [
+      'Install OrbStack from https://orbstack.dev/download and launch it once.',
+      'On Intel Macs that cannot run macOS 13+, use the Lima backend instead:',
+      '  brew install lima && mercelle dev --backend lima',
+    ]
+  }
+
+  /** Remove a VM (the interface name). */
+  async remove(machine: string): Promise<void> {
+    return this.deleteMachine(machine)
+  }
+
+  /** List VM names (the interface name). */
+  async list(): Promise<string[]> {
+    return this.listMachines()
+  }
+
+  /** Run a command in a VM (the interface name). */
+  async run(machine: string, command: string, opts: RunOptions = {}): Promise<OrbResult> {
+    return this.runInMachine(machine, command, opts)
+  }
+
+  /** Create a VM (the interface name). */
+  async create(
+    machine: string,
+    distro: Distro,
+    opts: { cpus?: number; memory?: number; disk?: string } = {},
+  ): Promise<void> {
+    return this.createMachine(machine, distro, opts)
   }
 
   /** Human-readable form of a command, for logs and errors. */
@@ -241,32 +274,42 @@ export class Orb {
     })
   }
 
-  /** True when something is accepting connections on a host port. */
+  /** True when a port on the host is accepting connections. */
   static async isPortOpen(port: number, host = '127.0.0.1', timeoutMs = 500): Promise<boolean> {
-    const net = await import('node:net')
-    return new Promise<boolean>((resolve) => {
-      const socket = net.connect({ port, host })
-      const done = (v: boolean) => {
-        socket.removeAllListeners()
-        socket.destroy()
-        resolve(v)
-      }
-      socket.setTimeout(timeoutMs)
-      socket.once('connect', () => done(true))
-      socket.once('timeout', () => done(false))
-      socket.once('error', () => done(false))
-    })
+    return isPortOpen(port, host, timeoutMs)
   }
 
   /** Poll until a host port responds, or the deadline passes. */
   static async waitForPort(port: number, timeoutMs = 90_000, host = '127.0.0.1'): Promise<boolean> {
-    const deadline = Date.now() + timeoutMs
-    while (Date.now() < deadline) {
-      if (await Orb.isPortOpen(port, host)) return true
-      await new Promise((r) => setTimeout(r, 250))
-    }
-    return false
+    return waitForPort(port, timeoutMs, host)
   }
+}
+
+/** True when something is accepting connections on a host port. */
+export async function isPortOpen(port: number, host = '127.0.0.1', timeoutMs = 500): Promise<boolean> {
+  const net = await import('node:net')
+  return new Promise<boolean>((resolve) => {
+    const socket = net.connect({ port, host })
+    const done = (v: boolean) => {
+      socket.removeAllListeners()
+      socket.destroy()
+      resolve(v)
+    }
+    socket.setTimeout(timeoutMs)
+    socket.once('connect', () => done(true))
+    socket.once('timeout', () => done(false))
+    socket.once('error', () => done(false))
+  })
+}
+
+/** Poll until a host port responds, or the deadline passes. */
+export async function waitForPort(port: number, timeoutMs = 90_000, host = '127.0.0.1'): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await isPortOpen(port, host)) return true
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  return false
 }
 
 /** Extract machine names from `orb list` table output. */

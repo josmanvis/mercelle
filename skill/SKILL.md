@@ -8,12 +8,30 @@ license: MIT
 
 # mercelle — verify code in real Linux before it ships
 
-`mercelle` runs the app inside a lightweight **Linux VM** on OrbStack, installs
-dependencies *inside* that VM, and injects the Vercel system environment
-variables. macOS dev hides whole classes of production bugs; this skill exists
-to catch them.
+`mercelle` runs the app inside a lightweight **Linux VM**, installs dependencies
+*inside* that VM, and injects the Vercel system environment variables. macOS dev
+hides whole classes of production bugs; this skill exists to catch them.
 
 **The rule this skill enforces: never declare a change verified on macOS alone.**
+
+## Backends
+
+| Backend | When to use |
+| --- | --- |
+| **OrbStack** (preferred) | Any Mac that can run macOS 13+ |
+| **Lima** | Older Intel Macs where OrbStack cannot be installed |
+
+`mercelle` auto-detects. If a command fails because no backend is installed,
+check with `mercelle doctor`, then install one:
+
+```bash
+brew install --cask orbstack   # modern Macs
+brew install lima              # older Intel Macs
+```
+
+Use `--backend orbstack` or `--backend lima` to force a specific one.
+`mercelle status` reports the active backend.
+
 
 ## When this fires
 
@@ -34,10 +52,11 @@ Follow in order. Do not skip step 1.
 mercelle doctor
 ```
 
-`doctor` is read-only and safe to run anywhere. It checks OrbStack, project
-detection, VM state, Node inside the VM, and port availability. Fix anything
-blocking **before** continuing. If OrbStack is missing, stop and tell the user —
-do not silently fall back to local macOS dev.
+`doctor` is read-only and safe to run anywhere. It checks the VM backend,
+project detection, VM state, Node inside the VM, and port availability. Fix
+anything blocking **before** continuing. If no backend is installed, stop and
+tell the user which one to install — do not silently fall back to local macOS
+dev.
 
 ### 2. Run the app in the VM
 

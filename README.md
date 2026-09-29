@@ -19,6 +19,27 @@ It exists to catch the class of bugs that only show up *after* you deploy:
 
 ---
 
+## Backends
+
+mercelle runs the VM with whichever backend is available:
+
+| Backend | Best for | Install |
+| --- | --- | --- |
+| **OrbStack** (default, preferred) | Any Mac that can run macOS 13+ | `brew install --cask orbstack` |
+| **Lima** | Older Intel Macs that cannot run OrbStack | `brew install lima` |
+
+`--backend auto` (the default) uses OrbStack when present and falls back to Lima.
+Force one with `--backend orbstack` or `--backend lima`. `mercelle status` shows
+which is active.
+
+**If you have an Intel Mac from before ~2018**, OrbStack will not install (it
+requires macOS 13+). Use Lima — it runs a real Linux VM via QEMU:
+
+```bash
+brew install lima
+mercelle dev --backend lima
+```
+
 ## Why a VM, not a container?
 
 A container gives you a Linux userland but shares the host kernel, and often the

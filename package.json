@@ -1,0 +1,51 @@
+{
+  "name": "mercelle",
+  "version": "0.1.0",
+  "description": "A Vercel-compatible dev environment that runs your app inside an OrbStack Linux VM, so you catch Linux-only bugs before they reach production.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "mercelle": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "vercel",
+    "orbstack",
+    "vm",
+    "linux",
+    "dev",
+    "ci",
+    "docker",
+    "cross-platform"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli.ts",
+    "mercelle": "tsx src/cli.ts",
+    "type-check": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src __tests__",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}

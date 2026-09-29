@@ -1,0 +1,15 @@
+{
+  "distro": "ubuntu",
+  "cpus": 4,
+  "memory": 8,
+  "disk": "64GB",
+  "port": 3000,
+  "hostPort": null,
+  "sync": "copy",
+  "region": "iad1",
+  "watch": true,
+  "env": {
+    "FEATURE_FLAG_EXAMPLE": "on"
+  },
+  "forwardEnv": []
+}

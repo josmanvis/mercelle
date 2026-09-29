@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# local npm cache (workaround for sandboxed CI)
+.npm-cache/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# mercelle state
+.mercelle/
+
+# env
+.env
+.env*.local
+
+# misc
+.DS_Store
+*.log
+coverage/

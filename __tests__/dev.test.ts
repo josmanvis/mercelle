@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -137,5 +137,83 @@ describe('VmManager', () => {
     const vm = new VmManager({ orb: fake.orb, config: defaultConfig, project, logger: silentLogger })
 
     await expect(vm.installDeps('/home/tester/mercelle/mercelle-shop')).rejects.toThrow(/Dependency installation failed/)
+  })
+})
+
+describe('VmManager mount mode', () => {
+  it('maps the project path under /mnt/mac', async () => {
+    const fake = createFakeOrb()
+    const dir = makeNextProject()
+    const project = resolveProject(dir)
+    const vm = new VmManager({
+      orb: fake.orb,
+      config: { ...defaultConfig, sync: 'mount' },
+      project,
+      logger: silentLogger,
+    })
+
+    expect(await vm.remoteRoot('/home/tester')).toBe(`/mnt/mac${dir}`)
+  })
+
+  it('keeps node_modules on the VM disk, not the Mac', async () => {
+    const fake = createFakeOrb()
+    const project = resolveProject(makeNextProject())
+    const vm = new VmManager({
+      orb: fake.orb,
+      config: { ...defaultConfig, sync: 'mount' },
+      project,
+      logger: silentLogger,
+    })
+
+    const modules = await vm.modulesDir('/home/tester')
+    expect(modules).toBe('/home/tester/.mercelle-modules/mercelle-shop/node_modules')
+    expect(modules.startsWith('/home/tester')).toBe(true)
+  })
+
+  it('does not copy files in mount mode', async () => {
+    const fake = createFakeOrb()
+    const project = resolveProject(makeNextProject())
+    const vm = new VmManager({
+      orb: fake.orb,
+      config: { ...defaultConfig, sync: 'mount' },
+      project,
+      logger: silentLogger,
+    })
+
+    await vm.syncToVm('/mnt/mac/whatever')
+    // No archive should have been streamed into the VM.
+    expect(fake.stdinBytes()).toBe(0)
+  })
+
+  it('refuses to clobber a real macOS node_modules directory', async () => {
+    const fake = createFakeOrb()
+    const dir = makeNextProject()
+    // makeNextProject creates a real node_modules directory.
+    const project = resolveProject(dir)
+    const vm = new VmManager({
+      orb: fake.orb,
+      config: { ...defaultConfig, sync: 'mount' },
+      project,
+      logger: silentLogger,
+    })
+
+    await expect(vm.prepareMount('/home/tester')).rejects.toThrow(/real directory exists/)
+  })
+
+  it('accepts an existing symlinked node_modules', async () => {
+    const fake = createFakeOrb()
+    const dir = makeNextProject()
+    rmSync(join(dir, 'node_modules'), { recursive: true, force: true })
+    symlinkSync('/home/tester/.mercelle-modules/mercelle-shop/node_modules', join(dir, 'node_modules'))
+
+    const vm = new VmManager({
+      orb: fake.orb,
+      config: { ...defaultConfig, sync: 'mount' },
+      project: resolveProject(dir),
+      logger: silentLogger,
+    })
+
+    await expect(vm.prepareMount('/home/tester')).resolves.toBeUndefined()
+    expect(fake.runScripts().some((s) => s.includes('ln -s'))).toBe(true)
   })
 })

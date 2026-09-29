@@ -34,7 +34,15 @@ export {
   toEnvPrefix,
   type VercelEnvOptions,
 } from './env.js'
-export { VmManager, createTarArchive, shellQuote as vmShellQuote, DEFAULT_IGNORES, NODE_VERSION, type VmInfo } from './vm.js'
+export {
+  VmManager,
+  createTarArchive,
+  macPathInVm,
+  shellQuote as vmShellQuote,
+  DEFAULT_IGNORES,
+  NODE_VERSION,
+  type VmInfo,
+} from './vm.js'
 export { consoleLogger, createMemoryLogger, c, term } from './logger.js'
 export {
   MercelleError,

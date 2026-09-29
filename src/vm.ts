@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process'
+import { lstatSync } from 'node:fs'
+import { join } from 'node:path'
 import { MercelleError } from './errors.js'
 import { c, consoleLogger } from './logger.js'
 import { Orb } from './orb.js'
@@ -24,6 +26,14 @@ export const DEFAULT_IGNORES = [
 
 /** Node version installed inside the VM. Kept in one place so it is easy to bump. */
 export const NODE_VERSION = '22'
+
+/**
+ * Map a macOS path to the same path as seen from inside an OrbStack machine.
+ * OrbStack mounts the Mac filesystem at /mnt/mac.
+ */
+export function macPathInVm(macPath: string): string {
+  return `/mnt/mac${macPath.startsWith('/') ? macPath : `/${macPath}`}`
+}
 
 export interface VmManagerOptions {
   orb: Orb
@@ -204,10 +214,68 @@ export class VmManager {
     }
   }
 
-  /** Remote absolute path for the project. */
+  /**
+   * Remote absolute path for the project.
+   *
+   * In `mount` mode the VM reads the project straight off the Mac's shared
+   * filesystem at /mnt/mac, so no copy is needed and edits are visible
+   * immediately. In `copy` mode the project is tarred into the VM's own disk.
+   */
   async remoteRoot(home?: string): Promise<string> {
+    if (this.config.sync === 'mount') return macPathInVm(this.project.root)
     const h = home ?? (await this.getHome())
     return `${h}/${this.project.remoteRoot}`
+  }
+
+  /** Where Linux node_modules live in the VM (always VM-local, never on the Mac). */
+  async modulesDir(home?: string): Promise<string> {
+    const h = home ?? (await this.getHome())
+    return `${h}/.mercelle-modules/${this.project.machine}/node_modules`
+  }
+
+  /**
+   * In mount mode, node_modules still has to be a Linux install: the project
+   * directory itself lives on the Mac filesystem, so we point its node_modules
+   * at a directory that lives on the VM's own disk.
+   */
+  async prepareMount(home?: string): Promise<void> {
+    if (this.config.sync !== 'mount') return
+
+    const h = home ?? (await this.getHome())
+    const modules = await this.modulesDir(h)
+    const link = join(this.project.root, 'node_modules')
+
+    // Refuse to clobber a real macOS install: silently replacing it would be
+    // destructive, and sharing Darwin binaries with Linux breaks native modules.
+    const existing = lstatSync(link, { throwIfNoEntry: false })
+    if (existing && !existing.isSymbolicLink()) {
+      throw new MercelleError(
+        'mount mode needs node_modules to be a symlink, but a real directory exists.',
+        [
+          `Move it aside first:  mv ${shellQuote(link)} ${shellQuote(`${link}.macos`)}`,
+          'Then re-run `mercelle dev`.',
+          'Or use the default copy mode: `mercelle dev --sync copy`.',
+        ],
+      )
+    }
+
+    this.log.step('Linking a Linux node_modules into the mounted project…')
+    const script = [
+      `set -e`,
+      `mkdir -p ${shellQuote(modules)}`,
+      // Only relink when the target is missing or already points somewhere else.
+      `if [ ! -L ${shellQuote(link)} ] || [ "$(readlink ${shellQuote(link)})" != ${shellQuote(modules)} ]; then`,
+      `  rm -rf ${shellQuote(link)}`,
+      `  ln -s ${shellQuote(modules)} ${shellQuote(link)}`,
+      `fi`,
+    ].join('\n')
+
+    const res = await this.orb.runInMachine(this.project.machine, script, { allowFailure: true })
+    if (res.code !== 0) {
+      throw new MercelleError('Failed to set up the Linux node_modules link for mount mode.', [
+        res.stderr.trim() || 'Could not create the symlink inside the VM.',
+      ])
+    }
   }
 
   /** Excludes used when syncing, honouring the project's .gitignore-ish defaults. */
@@ -219,8 +287,16 @@ export class VmManager {
    * Mirror the project into the VM using tar over stdin.
    * Excludes node_modules and build output: dependencies are installed inside
    * the VM so they are compiled for Linux, not macOS.
+   *
+   * A no-op in mount mode, where the VM already reads the live files from
+   * /mnt/mac and there is nothing to copy.
    */
   async syncToVm(remoteRoot: string): Promise<void> {
+    if (this.config.sync === 'mount') {
+      this.log.step('Mount mode: the VM reads your files live from /mnt/mac.')
+      return
+    }
+
     this.log.step('Syncing project into the VM…')
     const archive = createTarArchive(this.project.root, this.excludeArgs())
     const res = await this.orb.exec(

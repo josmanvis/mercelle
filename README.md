@@ -179,6 +179,31 @@ The test suite drives the real code against a **fake `orb` binary** — an actua
 executable, so argv parsing, exit codes and stdio are exercised through a real
 subprocess rather than a mock.
 
+## Using mercelle from AI agents
+
+A skill ships with the repo so coding agents verify changes in Linux instead of
+guessing from macOS behaviour:
+
+```
+~/.claude/skills/mercelle/SKILL.md
+~/.agents/skills/mercelle/SKILL.md
+```
+
+Both copies are byte-identical, matching the convention used by your other
+skills. Install or refresh them from the repo root with:
+
+```bash
+./skill/install.sh
+```
+
+The skill teaches an agent to run `mercelle doctor` → `mercelle dev` →
+`mercelle build`, to confirm `node -p process.platform` is `linux`, and to
+**report honestly** when something was not actually verified. It explicitly
+forbids substituting a local `npm run dev` run for real VM verification.
+
+If you add a flag or change a default, re-run `./skill/install.sh` so the skill
+does not drift from the CLI.
+
 ## Troubleshooting
 
 **`OrbStack was not found`** — install and launch OrbStack once.

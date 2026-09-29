@@ -81,6 +81,9 @@ export async function dev(opts: DevOptions): Promise<DevResult> {
   const remoteRoot = await vm.remoteRoot(home)
 
   await vm.provision()
+  // In mount mode this must happen before install, so node_modules resolves to a
+  // Linux directory rather than any macOS install sitting in the project.
+  await vm.prepareMount(home)
   await vm.syncToVm(remoteRoot)
 
   // Skip reinstall when a Linux node_modules already exists, unless forced.
@@ -189,6 +192,8 @@ async function runWatching(args: WatchArgs): Promise<DevResult> {
       try {
         log.step(`${files.length} file${files.length > 1 ? 's' : ''} changed — restarting in the VM…`)
         await stop()
+        // In mount mode the VM already sees the edited files, so there is
+        // nothing to copy; just restart the process.
         await vm.syncToVm(remoteRoot)
         start()
       } finally {

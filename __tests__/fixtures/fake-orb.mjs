@@ -135,19 +135,29 @@ switch (command) {
       }
 
       // Answer the specific probe commands mercelle issues.
+      //
+      // A probe that produces a real answer must NOT also print the [fake-orb]
+      // echo line below: callers like VmManager.getHome() read stdout verbatim,
+      // so the extra line was parsed as part of the value and every path built
+      // from it came out corrupted. The echo is only useful for commands that
+      // have no answer of their own.
+      let answered = false
       if (script.includes('echo $HOME')) {
         console.log('/home/tester')
+        answered = true
       } else if (script.includes('node -v')) {
         console.log('v22.11.0')
+        answered = true
       } else if (script.includes('command -v node')) {
         console.log('/usr/bin/node')
+        answered = true
       } else if (script.includes('test -d')) {
         // Report node_modules as present unless told otherwise.
         process.exit(existsSync(join(stateDir, 'no_modules')) ? 1 : 0)
       }
 
       appendFileSync(join(stateDir, 'run.log'), `${machine}: ${script}\n`)
-      console.log(`[fake-orb:${machine}] ${script.split('\n')[0]}`)
+      if (!answered) console.log(`[fake-orb:${machine}] ${script.split('\n')[0]}`)
       process.exit(0)
     })
     break

@@ -10,5 +10,5 @@ export function buildCommandLine(remoteRoot: string, env: Record<string, string>
     toEnvPrefix(env),
     `export PATH=${shellQuote(join(remoteRoot, 'node_modules/.bin'))}:$PATH`,
     command,
-  ].join(' && ')
+  ].filter(Boolean).join(' && ')
 }

@@ -35,6 +35,14 @@ jobs:
             exit 1
           fi
 
-      - run: npm publish --provenance --access public
+      - name: Publish only if this version is not already on npm
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          if npm view "mercelle@$version" version >/dev/null 2>&1; then
+            echo "mercelle@$version is already published — nothing to do."
+            exit 0
+          fi
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

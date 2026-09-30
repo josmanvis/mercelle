@@ -68,14 +68,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mercelle-dev/mercelle.git"
+    "url": "git+https://github.com/josmanvis/mercelle.git"
   },
-  "homepage": "https://github.com/mercelle-dev/mercelle#readme",
+  "homepage": "https://github.com/josmanvis/mercelle#readme",
   "bugs": {
-    "url": "https://github.com/mercelle-dev/mercelle/issues"
+    "url": "https://github.com/josmanvis/mercelle/issues"
   },
   "author": "mercelle contributors",
-  "funding": "https://github.com/sponsors/mercelle-dev",
+  "funding": "https://github.com/sponsors/josmanvis",
   "publishConfig": {
     "access": "public"
   }

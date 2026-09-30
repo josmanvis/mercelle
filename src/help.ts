@@ -3,7 +3,7 @@ import { c } from './logger.js'
 export const VERSION = '0.1.0'
 
 /** The `mercelle --help` output. */
-export const HELP = `${c.bold('mercelle')} — a Vercel-like dev environment inside an OrbStack Linux VM
+export const HELP = `${c.bold('mercelle')} — run your app in a real Linux VM before it ships to Vercel
 
 ${c.bold('Usage')}
   mercelle <command> [options]
@@ -39,22 +39,23 @@ ${c.bold('Options')}
   --region <id>        Vercel region                (default iad1)
   --forward <list>     Comma-separated host env vars to forward
   --orb-bin <path>     Path to the orb binary
-  --backend <name>      orbstack | lima | auto            (default auto)
-  --lima-bin <path>     Path to the limactl binary
+  --backend <name>     orbstack | lima | auto      (default auto)
+  --lima-bin <path>    Path to the limactl binary
   --fresh              Recreate the VM
   --reinstall          Reinstall deps in the VM
   --no-watch           Disable watching
   --once               Run the dev server once and exit
-  --ui-port <n>        Web dashboard port                 (default 4242)
+  --ui-port <n>        Web dashboard port            (default 4242)
   --no-ui              Disable the web dashboard
-  --dev-root <dir>     Directory the Run App picker scans  (default ~/Developer)
-  --domain-suffix <s>  Local domain suffix                (default axxes.local)
+  --dev-root <dir>     Directory the picker scans   (default ~/Developer)
+  --domain-suffix <s>  Local domain suffix          (default axxes.local)
   --install            (domains) write /etc/hosts entries
   --remove             (domains) remove mercelle's /etc/hosts block
   --apply              (data) apply the seed inside the VM via prisma
-  --rows <n>           (data) rows per model              (default 10)
+  --rows <n>           (data) rows per model           (default 10)
   --json               (network) print the graph as JSON
   --out <file>         (network) write the SVG map to a file
+  --lines <n>          (logs) lines of history to replay
   --dry-run            Print commands without running them
   -v, --verbose        Verbose output
   -h, --help           Show help

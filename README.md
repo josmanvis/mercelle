@@ -1,19 +1,43 @@
+<p align="center">
+  <img src="docs/assets/mercelle.svg" alt="mercelle" width="120">
+</p>
+
+<p align="center">
+  <b>Test on Linux before you ship to Vercel.</b>
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#the-workflow">Workflow</a> ·
+  <a href="#commands">Commands</a> ·
+  <a href="docs/">Docs</a> ·
+  <a href="https://github.com/josmanvis/mercelle/issues">Issues</a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/mercelle"><img alt="npm version" src="https://img.shields.io/npm/v/mercelle.svg"></a>
+  <a href="https://www.npmjs.com/package/mercelle"><img alt="npm downloads" src="https://img.shields.io/npm/dm/mercelle.svg"></a>
+  <a href="https://github.com/josmanvis/mercelle/actions"><img alt="CI" src="https://github.com/josmanvis/mercelle/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="https://www.npmjs.com/package/mercelle"><img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-5FA04E.svg"></a>
+</p>
+
 ---
 
 # mercelle
 
-**Your Vercel dev server, but in a real Linux VM — running on your Mac.**
+**Run your app in a real Linux VM before you ship it to Vercel.**
 
-`mercelle` runs your app inside a lightweight Linux virtual machine. Node,
-native modules, the filesystem, the CPU architecture — all Linux, exactly like
-production. But it boots in seconds, forwards ports to `localhost`, and feeds
-you the Vercel environment variables your code expects.
+Vercel runs Linux. Your Mac does not. Everything in between — libc, filesystem
+case-sensitivity, CPU architecture, native modules, `VERCEL_ENV` branches — is
+where production bugs live, and none of them reproduce on macOS.
 
-**The rule it exists to enforce: never declare a change verified on macOS
-alone.** Vercel runs Linux. Your Mac does not. Everything between those two
-facts is where production bugs live.
+mercelle closes that gap. Your app runs inside a real Linux virtual machine,
+dependencies are installed *inside* it so native modules are built for Linux, and
+your code gets the Vercel environment variables it branches on. The first run
+provisions a VM and installs a toolchain — a few minutes, cached from then on.
 
-It exists to catch the class of bugs that only show up *after* you deploy:
+It catches the class of bugs that only show up *after* you deploy:
 
 | Bug | Why macOS dev misses it |
 | --- | --- |
@@ -48,14 +72,23 @@ mercelle dev --backend lima
 
 ## Why a VM, not a container?
 
-A container gives you a Linux userland but shares the host kernel, and often the
-filesystem. mercelle uses **OrbStack Linux machines** — genuine lightweight VMs.
-You get a real init system, a real filesystem, real permissions, and a real
-userland, so `apt install` and native builds behave the way they will in prod.
+|                      | Container on macOS      | mercelle VM                    |
+| -------------------- | ----------------------- | ------------------------------ |
+| Kernel               | Shared with the host    | Real Linux kernel              |
+| Architecture         | Often emulated          | Whatever the target is         |
+| `apt install`, native builds | Sandboxed        | Behaves like production        |
+| Cold start           | Fast                    | A few minutes, once            |
+| Port forwarding      | Manual                  | Automatic                      |
 
-[OrbStack](https://orbstack.dev) is the fastest way to run Linux VMs on macOS and
-forwards ports to `localhost` automatically, so your app is just
-`http://localhost:3000` on the Mac — no port-forwarding setup.
+A container gives you a Linux userland but shares the host kernel, and usually
+the filesystem. mercelle boots a **real virtual machine** — OrbStack by default,
+Lima on Macs that cannot run it.
+
+You get a real init system, a real filesystem, real permissions and a real
+userland, so `apt install` and native builds behave the way they will in
+production rather than the way they behave in a container sandbox.
+
+Ports are forwarded to `localhost`, so your app is just `http://localhost:3000`.
 
 ## Install
 
@@ -116,7 +149,7 @@ mercelle will:
 6. Inject the Vercel system environment variables
 7. Start your dev server and stream its output
 
-Your app is live at `http://localhost:3000` and
+Your app is live at `http://localhost:3000`. On OrbStack it is also reachable at
 `http://mercelle-my-app.orb.local:3000`.
 
 ### The web dashboard
@@ -131,7 +164,9 @@ dashboard (default `http://localhost:4242`) that shows, live:
 - **Local domains** — each app's `app.axxes.local` URL,
 - **Databases** — which database each service uses, and which production DSNs
   mercelle deliberately withheld,
-- **Suggested apps** — the axxes apps you test most, from your own run history,
+- **Suggested apps** — the ones you run most, from your own run history,
+- **Network** — how your services are wired, redrawn as apps connect,
+- **Live logs** — every app's output in one stream, refreshing live,
 - **Issues** — anything that went wrong along the way, with hints.
 
 A "logs" button tails each app's `/tmp/<service>.log` inside the VM. Attach to
@@ -159,7 +194,7 @@ you can check it against reality. In particular a connection built at runtime
 from a config value mercelle cannot see will not appear; treat the map as a map
 of what is written down, not a packet capture.
 
-### Local domains (your axxes cloud, locally)
+### Local domains
 
 Each service gets `web.axxes.local`-style domains that resolve to the VM.
 To install the mappings system-wide (one sudo prompt):
@@ -195,8 +230,10 @@ mercelle data --rows 50
 | `mercelle stack` | Boot every service in a workspace and open the web dashboard |
 | `mercelle domains` | Show/install `app.axxes.local` local domains |
 | `mercelle data` | Generate synthetic mock data from prisma schemas |
+| `mercelle network` | Map how your services are wired, inferred from source |
+| `mercelle logs [<name>]` | Tail every running app's output in one stream |
 | `mercelle ui` | Open the web dashboard for a stack that is already running |
-| `mercelle up` | Create the VM and install the toolchain, without running the app |
+| `mercelle up [<dir>]` | Bring an app up in the VM and leave it running, deploy-like |
 | `mercelle build` | Run your production build inside the VM |
 | `mercelle shell` | Open a shell inside the VM — see what your app actually sees |
 | `mercelle env` | Print the exact Vercel env vars mercelle injects |
@@ -275,22 +312,22 @@ production.
 ## How it works
 
 ```
-   macOS                     OrbStack Linux machine
-┌──────────────┐           ┌────────────────────────────┐
+   macOS                          Linux VM
+┌──────────────┐          ┌────────────────────────────┐
 │  your code   │  tar/stdin│  ~/mercelle/mercelle-app   │
-│  (editor)    │ ─────────►│  node_modules (Linux)      │
+│  (editor)    │ ────────►│  node_modules (Linux)      │
 │              │           │  node 22 · git · build-ess.│
-│  mercelle    │  orb run  │                            │
+│  mercelle    │ orb/limactl│                            │
 │  CLI         │ ─────────►│  next dev  :3000           │
-└──────────────┘           └─────────────┬──────────────┘
+└──────────────┘          └─────────────┬──────────────┘
       ▲                                  │ automatic
       │        localhost:3000  ◄──────────┘  port forwarding
       └───────────────────────────────────────────────
 ```
 
-mercelle drives OrbStack entirely through its `orb` CLI (`create`, `run`,
-`start`, `stop`, `delete`, `config set`), so it works with any OrbStack version
-that ships `orb`, and the integration is fully testable.
+mercelle drives the backend through its CLI — `orb` for OrbStack, `limactl` for
+Lima — so it works with whatever version you already have, and the whole
+integration is testable without a real VM.
 
 ## Programmatic use
 
@@ -310,28 +347,27 @@ npm run type-check  # tsc --noEmit
 npm run build
 ```
 
-The test suite drives the real code against a **fake `orb` binary** — an actual
-executable, so argv parsing, exit codes and stdio are exercised through a real
-subprocess rather than a mock.
+The test suite drives the real code against **fake `orb` and `limactl`
+executables** — actual programs, so argv parsing, exit codes and stdio are
+exercised through a real subprocess rather than a mock. CI runs the full suite on
+macOS and Linux, and also asserts the published tarball contains a working
+binary, type declarations and the agent skill.
 
 ## Using mercelle from AI agents
 
-A skill ships with the repo so coding agents verify changes in Linux instead of
-guessing from macOS behaviour:
-
-```
-~/.claude/skills/mercelle/SKILL.md
-~/.agents/skills/mercelle/SKILL.md
-```
-
-Both copies are byte-identical, matching the convention used by your other
-skills. Install or refresh them from the repo root with:
+A skill ships inside the package so coding agents verify changes in Linux instead
+of guessing from macOS behaviour. One script installs it everywhere:
 
 ```bash
 ./skill/install.sh
 ```
 
-The skill teaches an agent to run `mercelle doctor` → `mercelle dev` →
+It writes a `SKILL.md` for agents that read skills (Claude Code, and the shared
+`.agents` tree) and a flat `AGENTS.md` for the ones that do not (Cline, Gemini,
+Cursor, Agy, Freebuff), appending rather than overwriting so existing rules are
+preserved. Agents that are not installed are skipped.
+
+The skill teaches an agent to run `mercelle doctor` → `mercelle up` →
 `mercelle build`, to confirm `node -p process.platform` is `linux`, and to
 **report honestly** when something was not actually verified. It explicitly
 forbids substituting a local `npm run dev` run for real VM verification.

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" width="240" height="64" role="img" aria-label="mercelle">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7fdbca"/>
+      <stop offset="100%" stop-color="#4ade80"/>
+    </linearGradient>
+  </defs>
+  <!-- A minimal VM mark: a rounded box with a terminal caret inside. -->
+  <rect x="2" y="12" width="40" height="40" rx="11" fill="none" stroke="url(#g)" stroke-width="2.5"/>
+  <path d="M14 24 L22 32 L14 40" fill="none" stroke="url(#g)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="27" y1="40" x2="34" y2="40" stroke="url(#g)" stroke-width="3" stroke-linecap="round"/>
+  <text x="54" y="43" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="27" font-weight="600" fill="#d6deeb">mercelle</text>
+</svg>

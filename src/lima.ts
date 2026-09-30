@@ -303,18 +303,28 @@ export class Lima implements VmBackend {
     }
   }
 
-  /** True when the instance is currently running (best effort). */
+  /**
+   * True when the instance is currently running.
+   *
+   * Best effort by design: it only decides whether to print a warning, so a
+   * missing or broken `limactl` must return false rather than throw. The port
+   * forward itself is already written by the time this is called.
+   */
   private isRunning(machine: string): boolean {
-    const res = this.raw(['list', '--json'], { allowFailure: true })
-    if (res.code !== 0) return false
-    for (const line of res.stdout.split('\n')) {
-      if (!line.trim()) continue
-      try {
-        const entry = JSON.parse(line) as { name?: string; status?: string }
-        if (entry.name === machine) return entry.status === 'Running'
-      } catch {
-        /* an unparseable line is not this machine */
+    try {
+      const res = this.raw(['list', '--json'], { allowFailure: true })
+      if (res.code !== 0) return false
+      for (const line of res.stdout.split('\n')) {
+        if (!line.trim()) continue
+        try {
+          const entry = JSON.parse(line) as { name?: string; status?: string }
+          if (entry.name === machine) return entry.status === 'Running'
+        } catch {
+          /* an unparseable line is not this machine */
+        }
       }
+    } catch {
+      /* the binary is missing or unusable: stay quiet */
     }
     return false
   }

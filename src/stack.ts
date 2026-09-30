@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import type { PackageManager } from './types.js'
 
 /** A single service in the stack. */
@@ -146,5 +146,9 @@ export function stableHash(input: string): number {
 
 /** Write the discovered stack to disk so the CLI and VM can share it. */
 export function writeStackManifest(services: StackService[], path: string): void {
+  // The manifest lives in `<workspace>/.mercelle/`, and that directory does not
+  // exist on a first run — writing straight to it threw ENOENT and aborted the
+  // stack after the services had already been synced.
+  mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, JSON.stringify({ services }, null, 2))
 }

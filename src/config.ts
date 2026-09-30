@@ -24,6 +24,10 @@ export const configSchema = z.object({
   watch: z.boolean().default(true),
   region: z.string().default('iad1'),
   once: z.boolean().default(false),
+  ui: z.boolean().default(true),
+  uiPort: z.number().int().min(0).max(65535).default(4242),
+  devRoot: z.string().default(''),
+  domainSuffix: z.string().regex(/^[a-z0-9.-]+$/i).default('axxes.local'),
 })
 
 export type ConfigInput = z.input<typeof configSchema>
@@ -51,6 +55,10 @@ export const defaultConfig: MercelleConfig = {
   watch: true,
   region: 'iad1',
   once: false,
+  ui: true,
+  uiPort: 4242,
+  devRoot: '',
+  domainSuffix: 'axxes.local',
 }
 
 /** Validate and fill in defaults for a user-supplied config object. */

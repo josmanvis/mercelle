@@ -3,7 +3,7 @@ import { isPortOpen } from './orb.js'
 import { c, consoleLogger } from './logger.js'
 import { resolveProject } from './project.js'
 import type { Logger, MercelleConfig, VmBackend } from './types.js'
-import { NODE_VERSION } from './vm.js'
+import { NODE_VERSION, withNodePath } from './vm.js'
 
 export interface DoctorOptions {
   config: MercelleConfig
@@ -54,6 +54,18 @@ export async function doctor(opts: DoctorOptions): Promise<number> {
     checks.push({ name: 'Project', ok: false, detail: (err as Error).message, fatal: true })
   }
 
+  // 2b. On the Lima backend, QEMU has to be on the PATH or nothing can start.
+  if (orb.name === 'lima') {
+    const qemu = await hasQemu()
+    checks.push({
+      name: 'QEMU',
+      ok: qemu.ok,
+      // Fatal: without it no VM can be created or started.
+      detail: qemu.ok ? qemu.version : `${qemu.missing} is not on your PATH — run: brew install qemu`,
+      fatal: true,
+    })
+  }
+
   // 3. VM existence (only meaningful once OrbStack is available).
   if (installed && machine) {
     const exists = await (await orb.list()).includes(machine)
@@ -65,7 +77,9 @@ export async function doctor(opts: DoctorOptions): Promise<number> {
     })
 
     if (exists) {
-      const node = await orb.run(machine, 'node -v', { allowFailure: true })
+      // nvm is not on PATH in a non-interactive login shell, so probe with the
+      // same prelude the dev command uses or Node always looks absent.
+      const node = await orb.run(machine, withNodePath('node -v'), { allowFailure: true })
       checks.push({
         name: `Node ${NODE_VERSION} in VM`,
         ok: node.code === 0,
@@ -136,4 +150,23 @@ export async function doctor(opts: DoctorOptions): Promise<number> {
 /** True when this directory looks like something mercelle can run. */
 export function isProjectDir(cwd: string): boolean {
   return existsSync(`${cwd}/package.json`)
+}
+
+/**
+ * Is a QEMU binary for this machine's architecture on the PATH?
+ *
+ * Lima needs it to run the VM, and it is not installed by default on macOS. A
+ * missing binary used to surface as a wall of installer script followed by
+ * "instance is stopped", so it is checked up front and reported plainly.
+ */
+export async function hasQemu(): Promise<{ ok: boolean; version: string; missing: string }> {
+  const { execFile } = await import('node:child_process')
+  const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64'
+  const binary = `qemu-system-${arch}`
+  const version = await new Promise<string>((done) => {
+    execFile(binary, ['--version'], { timeout: 5000 }, (_err, stdout) => {
+      done(String(stdout).split('\n')[0]?.trim() ?? '')
+    })
+  })
+  return { ok: version.length > 0, version: version || binary, missing: binary }
 }

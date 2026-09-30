@@ -36,7 +36,9 @@ if (cmd === 'create' && argv.includes('--list-drivers')) {
 
 if (cmd === 'list') {
   if (argv.includes('--json')) {
-    console.log(JSON.stringify({ instances: read().map((n) => ({ name: n })) }))
+    // Real \`limactl list --json\` emits newline-delimited JSON — one flat
+    // object per instance — not a wrapper with an "instances" array.
+    for (const n of read()) console.log(JSON.stringify({ name: n, status: 'Running' }))
   } else {
     console.log(read().join('\\n'))
   }
@@ -59,8 +61,19 @@ if (cmd === 'start' || cmd === 'stop' || cmd === 'delete') {
 }
 
 if (cmd === 'shell') {
-  const name = argv[1]
-  const script2 = argv[argv.length - 1] || ''
+  // Real limactl takes flags before the instance name, so the first
+  // non-flag argument is the instance and everything after it is the command.
+  const rest = argv.slice(1)
+  const nameIdx = rest.findIndex((a) => !a.startsWith('-'))
+  const name = rest[nameIdx]
+  const after = rest.slice(nameIdx + 1)
+  // Only --tty is the trap: limactl passes it through to bash, which dies with
+  // "--: invalid option". The command's own flags (bash -lc) are legitimate.
+  if (after.some((a) => a.startsWith('--tty'))) {
+    console.error('unsupported: --tty after instance name in shell')
+    process.exit(1)
+  }
+  const script2 = after[after.length - 1] || ''
   // Only wait on stdin when the caller is streaming an archive. Otherwise the
   // parent may leave stdin open, and waiting would hang the command forever.
   if (process.env.FAKE_LIMA_READ_STDIN === '1') {

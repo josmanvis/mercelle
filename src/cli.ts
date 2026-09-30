@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { realpathSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createBackend } from './backend.js'
 import { parseArgs } from './args.js'
+import { discoverCatalog, recordRun } from './catalog.js'
 import { dev } from './dev.js'
 import { doctor } from './doctor.js'
 import { MercelleError } from './errors.js'
@@ -10,13 +12,14 @@ import { HELP, VERSION } from './help.js'
 import { c, consoleLogger } from './logger.js'
 import { resolveConfig } from './loadConfig.js'
 import { Orb } from './orb.js'
+import { pickApp } from './pick.js'
 import { resolveProject } from './project.js'
-import { VmManager } from './vm.js'
+import { VmManager, withNodePath } from './vm.js'
 
 /** Run the CLI. Returns a process exit code instead of calling process.exit. */
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   const { flags, positional } = parseArgs(argv)
-  const command = positional[0] ?? 'dev'
+  let command = positional[0] ?? 'dev'
 
   if (flags.version) {
     console.log(VERSION)
@@ -27,7 +30,18 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 0
   }
 
-  const cwd = process.cwd()
+  let cwd = process.cwd()
+
+  // The magic default: bare `mercelle` outside a project opens the Run App
+  // picker instead of failing with a project-detection error.
+  if (command === 'dev' && !flags.help) {
+    const hasPkg = await import('node:fs').then((fs) => fs.existsSync(join(cwd, 'package.json')))
+    if (!hasPkg) {
+      command = 'run'
+      console.error(`${c.cyan('mercelle')} ${c.dim('no project here — opening the Run App picker…')}`)
+    }
+  }
+
   const config = resolveConfig(cwd, flags)
   if (flags.verbose) config.verbose = true
   if (flags.dryRun ?? flags['dry-run']) config.dryRun = true
@@ -35,23 +49,56 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   if (flags.reinstall) config.reinstall = true
   if (flags.watch === false) config.watch = false
   if (flags.once) config.once = true
+  if (flags.ui === false) config.ui = false
 
   const log = consoleLogger
   const orb = await createBackend(config, log)
 
   switch (command) {
+    case 'run': {
+      // `mercelle run` — pick from the catalog or take an explicit path.
+      const targetArg = positional[1]
+      const catalog = discoverCatalog(targetArg || config.devRoot || undefined)
+      let target: string | null = targetArg ?? null
+
+      if (!target) {
+        const picked = await pickApp(catalog, {
+          stdin: process.stdin,
+          stdout: process.stdout,
+          interactive: Boolean(process.stdin.isTTY),
+        })
+        if (!picked) {
+          log.error(
+            catalog.length === 0
+              ? `No runnable projects found under ${config.devRoot ?? '~/Developer'}.`
+              : 'No app selected. Pass a path: mercelle run ~/Developer/axxes/web',
+          )
+          return 1
+        }
+        target = picked.path
+      }
+
+      // Detect the target project, then run it exactly like `dev` does — but
+      // from the picked directory, recording the run for suggestions.
+      const project = resolveProject(target)
+      recordRun(project.root)
+      log.success(`Running ${c.bold(project.machine)} ${c.dim(`(${project.framework})`)}`)
+      const result = await dev({ config, cwd: project.root, orb, logger: log })
+      return result.exitCode
+    }
+
     case 'dev': {
       const result = await dev({ config, cwd, orb, logger: log })
       return result.exitCode
     }
 
     case 'up': {
-      const project = resolveProject(cwd)
-      const vm = new VmManager({ orb, config, project, logger: log })
-      await vm.ensureMachine()
-      await vm.provision()
-      log.success(`VM ${c.bold(project.machine)} is ready.`)
-      return 0
+      // `mercelle up [<dir>]` — bring an app up inside the VM and leave it
+      // running, the way you would deploy it. Defaults to the current directory.
+      const { upCommand } = await import('./upCommand.js')
+      const target = positional[1]
+      if (target) cwd = resolve(dirname(process.cwd()), target)
+      return upCommand({ cwd, config, orb, logger: log })
     }
 
     case 'build': {
@@ -61,9 +108,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       const remoteRoot = await vm.remoteRoot()
       await vm.syncToVm(remoteRoot)
       await vm.installDeps(remoteRoot)
-      const res = await orb.run(project.machine, `cd '${remoteRoot}' && ${project.buildCommand}`, {
-        stream: true,
-      })
+      const res = await orb.run(
+        project.machine,
+        withNodePath(`cd '${remoteRoot}' && ${project.buildCommand}`),
+        { stream: true },
+      )
       return res.code
     }
 
@@ -111,6 +160,57 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     case 'stack': {
       const { stackCommand } = await import('./stackCommand.js')
       return stackCommand({ cwd, config, orb, logger: log })
+    }
+
+    case 'ui': {
+      const { uiCommand } = await import('./uiCommand.js')
+      return uiCommand({ cwd, config, orb, logger: log })
+    }
+
+    case 'domains': {
+      const { domainsCommand } = await import('./domainsCommand.js')
+      return domainsCommand({
+        cwd,
+        config,
+        logger: log,
+        install: flags.install === true,
+        remove: flags.remove === true,
+      })
+    }
+
+    case 'data': {
+      const { dataCommand } = await import('./dataCommand.js')
+      return dataCommand({
+        cwd,
+        config,
+        orb,
+        logger: log,
+        apply: flags.apply === true,
+        rows: flags.rows ? Number(flags.rows) : undefined,
+      })
+    }
+
+    case 'network': {
+      const { networkCommand } = await import('./networkCommand.js')
+      return networkCommand({
+        cwd,
+        config,
+        logger: log,
+        json: flags.json === true,
+        out: typeof flags.out === 'string' ? flags.out : undefined,
+      })
+    }
+
+    case 'logs': {
+      const { logsCommand } = await import('./upCommand.js')
+      return logsCommand({
+        cwd,
+        config,
+        orb,
+        logger: log,
+        only: positional[1],
+        lines: flags.lines ? Number(flags.lines) : undefined,
+      })
     }
 
     case 'doctor':

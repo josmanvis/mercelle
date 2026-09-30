@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { MercelleError } from './errors.js'
@@ -84,6 +84,29 @@ export function detectVmType(exec: (args: string[]) => { code: number; stdout: s
 }
 
 /**
+ * Parse the output of `limactl list --json` into instance names.
+ *
+ * Lima emits newline-delimited JSON — one self-contained object per instance,
+ * not a JSON array — so this cannot use `JSON.parse` on the whole payload.
+ * A malformed line is skipped rather than failing the whole listing, because a
+ * single unparseable instance should not hide every other VM.
+ */
+export function parseLimaList(stdout: string): string[] {
+  const names: string[] = []
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      const entry = JSON.parse(trimmed) as { name?: unknown }
+      if (typeof entry.name === 'string' && entry.name) names.push(entry.name)
+    } catch {
+      // Not a JSON line (a stray warning, a log line); ignore it.
+    }
+  }
+  return names
+}
+
+/**
  * Lima backend: runs a real Linux VM using QEMU/virtualization.framework.
  *
  * This is the fallback for Intel Macs that cannot run OrbStack (OrbStack needs
@@ -112,7 +135,10 @@ export class Lima implements VmBackend {
 
   /** Run limactl directly. */
   private raw(args: string[], opts: { allowFailure?: boolean; input?: Buffer } = {}): OrbResult {
-    const display = `limactl ${args.join(' ')}`
+    // A long script (the toolchain installer) would otherwise be dumped in full
+    // on failure, burying the one line that says what actually went wrong.
+    const joined = args.join(' ')
+    const display = joined.length > 160 ? `${joined.slice(0, 157)}…` : joined
     if (this.dryRun) {
       this.log.info(c.dim(`[dry-run] ${display}`))
       return { code: 0, stdout: '', stderr: '' }
@@ -159,11 +185,31 @@ export class Lima implements VmBackend {
 
   async run(machine: string, command: string, opts: { stream?: boolean; allowFailure?: boolean; input?: Buffer } = {}): Promise<OrbResult> {
     // `limactl shell` is interactive by default; --tty=false keeps it scriptable.
-    return this.raw(['shell', machine, '--tty=false', 'bash', '-lc', command], opts)
+    // The flag must precede the instance name — anything after it is forwarded
+    // to the guest command, so a trailing --tty=false is passed to bash itself.
+    return this.raw(['shell', '--tty=false', machine, 'bash', '-lc', command], opts)
   }
 
   async start(machine: string): Promise<void> {
-    this.raw(['start', machine], { allowFailure: true })
+    // A failed start used to be swallowed here, so mercelle carried on and
+    // failed much later with a confusing "instance is stopped" error from an
+    // unrelated command. Surface the real reason now.
+    const res = this.raw(['start', machine], { allowFailure: true })
+    if (res.code !== 0) {
+      const why = (res.stderr || res.stdout).trim()
+      // The overwhelmingly common cause: qemu is not installed on the PATH.
+      if (/qemu-system|failed to find the QEMU binary/i.test(why)) {
+        throw new MercelleError(
+          `Cannot start ${machine}: the QEMU binary is not on your PATH.`,
+          [
+            'Lima needs qemu-system-x86_64 (or the right arch) to run this VM.',
+            '  brew install qemu',
+            'Or install OrbStack, which mercelle prefers:  https://orbstack.dev/download',
+          ],
+        )
+      }
+      throw new MercelleError(`Failed to start ${machine}.`, [why.split('\n').slice(-3).join('\n')])
+    }
   }
 
   async stop(machine: string): Promise<void> {
@@ -178,15 +224,7 @@ export class Lima implements VmBackend {
     const res = this.raw(['list', '--json'], { allowFailure: true })
     if (res.code !== 0) return []
     try {
-      const parsed: unknown = JSON.parse(res.stdout)
-      const arr = Array.isArray(parsed)
-        ? parsed
-        : typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as { instances?: unknown }).instances)
-          ? ((parsed as { instances: unknown[] }).instances as unknown[])
-          : []
-      return arr
-        .map((i) => (typeof i === 'string' ? i : ((i as { name?: string })?.name ?? '')))
-        .filter(Boolean)
+      return parseLimaList(res.stdout)
     } catch {
       return []
     }
@@ -198,7 +236,7 @@ export class Lima implements VmBackend {
       this.log.info(c.dim(`[dry-run] limactl shell ${machine} …`))
       return null
     }
-    const child = spawn(this.bin, ['shell', machine, '--tty=false', 'bash', '-lc', command], {
+    const child = spawn(this.bin, ['shell', '--tty=false', machine, 'bash', '-lc', command], {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     child.stdout?.on('data', handlers.onStdout ?? (() => {}))
@@ -208,12 +246,77 @@ export class Lima implements VmBackend {
   }
 
   /**
-   * Lima forwards guest ports to the host automatically, so there is no
-   * hostname to configure the way OrbStack's `config set` does. Ports land on
-   * localhost:<port> on the host.
+   * Honour a custom host port.
+   *
+   * Lima's automatic forwarding maps guest:<port> to host:<port>, so without
+   * this a `--host-port` different from `--port` never opens and the user gets
+   * a connection refused on the URL mercelle just printed. Lima has no runtime
+   * "set port" command, so the rule is written into lima.yaml and picked up
+   * when the instance restarts.
    */
-  async setHttpPort(): Promise<void> {
-    /* no-op: Lima forwards ports automatically */
+  async setHttpPort(machine: string, hostPort: number, guestPort = hostPort): Promise<void> {
+    if (hostPort === guestPort) return // automatic forwarding already matches
+
+    const yamlPath = join(this.home, machine, 'lima.yaml')
+    if (!existsSync(yamlPath)) return
+
+    let yaml: string
+    try {
+      yaml = readFileSync(yamlPath, 'utf8')
+    } catch {
+      return
+    }
+
+    this.log.step(`Forwarding guest:${guestPort} to localhost:${hostPort}…`)
+    // Drop any rule this backend previously wrote, then append the current one.
+    // Lima applies the last matching rule, so one managed block is enough.
+    const block = [
+      'portForwards:',
+      `  - guestPort: ${guestPort}`,
+      `    hostPort: ${hostPort}`,
+      '    proto: "tcp"',
+      '',
+    ].join('\n')
+
+    const withoutManaged = yaml.replace(
+      /\n?portForwards:\n(?:[ \t]+-[^\n]*\n|[ \t]+[^\n]*\n)*/g,
+      '\n',
+    )
+    const updated = `${withoutManaged.replace(/\n+$/, '\n')}${block}`
+    try {
+      writeFileSync(yamlPath, updated)
+    } catch (err) {
+      throw new MercelleError(`Could not set up port forwarding for ${machine}.`, [
+        (err as Error).message,
+        `Add this to ${yamlPath} by hand:`,
+        `  portForwards:\n    - guestPort: ${guestPort}\n      hostPort: ${hostPort}\n      proto: "tcp"`,
+      ])
+    }
+
+    // Lima reads portForwards when the VM boots, so a rule written while it is
+    // already running does nothing until the next start. Saying so beats letting
+    // the user discover it as a dead port.
+    if (this.isRunning(machine)) {
+      this.log.warn(
+        `Port ${guestPort} → ${hostPort} takes effect after the VM restarts: mercelle down && mercelle up`,
+      )
+    }
+  }
+
+  /** True when the instance is currently running (best effort). */
+  private isRunning(machine: string): boolean {
+    const res = this.raw(['list', '--json'], { allowFailure: true })
+    if (res.code !== 0) return false
+    for (const line of res.stdout.split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const entry = JSON.parse(line) as { name?: string; status?: string }
+        if (entry.name === machine) return entry.status === 'Running'
+      } catch {
+        /* an unparseable line is not this machine */
+      }
+    }
+    return false
   }
 
   installHint(): string[] {

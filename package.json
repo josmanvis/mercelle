@@ -15,7 +15,12 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "AGENTS.md",
+    "skill",
+    ".freebuff/SKILL.md",
+    ".cursor/rules/mercelle.md",
+    ".agy/AGENTS.md"
   ],
   "keywords": [
     "vercel",

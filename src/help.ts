@@ -9,9 +9,15 @@ ${c.bold('Usage')}
   mercelle <command> [options]
 
 ${c.bold('Commands')}
+  run [path]       Run App: pick a project from ~/Developer and run it in the VM
   dev              Run the dev server inside the VM (default)
   stack            Boot every service in a workspace inside the VM
-  up               Create the VM and install the toolchain
+  ui               Open the web dashboard for a running stack
+  domains          Show/install local <app>.axxes.local domains
+  data             Generate synthetic mock data for QA from prisma schemas
+  network          Show how the services in a workspace are wired together
+  up [<dir>]       Bring an app up in the VM and leave it running (deploy-like)
+  logs [<name>]    Tail every running app's output in one stream
   build            Run the production build inside the VM
   shell            Open a shell in the VM
   env              Print the Vercel system env mercelle injects
@@ -39,14 +45,30 @@ ${c.bold('Options')}
   --reinstall          Reinstall deps in the VM
   --no-watch           Disable watching
   --once               Run the dev server once and exit
+  --ui-port <n>        Web dashboard port                 (default 4242)
+  --no-ui              Disable the web dashboard
+  --dev-root <dir>     Directory the Run App picker scans  (default ~/Developer)
+  --domain-suffix <s>  Local domain suffix                (default axxes.local)
+  --install            (domains) write /etc/hosts entries
+  --remove             (domains) remove mercelle's /etc/hosts block
+  --apply              (data) apply the seed inside the VM via prisma
+  --rows <n>           (data) rows per model              (default 10)
+  --json               (network) print the graph as JSON
+  --out <file>         (network) write the SVG map to a file
   --dry-run            Print commands without running them
   -v, --verbose        Verbose output
   -h, --help           Show help
   --version            Print version
 
 ${c.bold('Examples')}
+  mercelle                        Run App: pick an app and go
+  mercelle run ~/Developer/axxes/web
   mercelle dev
-  mercelle dev --port 4000 --memory 16
+  mercelle up
+  mercelle logs
+  mercelle network
+  mercelle stack
+  mercelle domains --install
+  mercelle data --apply
   mercelle doctor
-  mercelle shell
 `

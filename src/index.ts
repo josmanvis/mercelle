@@ -6,8 +6,68 @@
 
 export { main } from './cli.js'
 export { createBackend } from './backend.js'
+export {
+  discoverCatalog,
+  popularityScore,
+  readStats,
+  recordRun,
+  suggestApps,
+  mercelleHome,
+  type CatalogEntry,
+  type RunStats,
+} from './catalog.js'
+export { pickApp, type PickIo } from './pick.js'
+export {
+  DEFAULT_DOMAIN_SUFFIX,
+  domainRoutes,
+  hostsBlock,
+  installHostsEntries,
+  readManagedHosts,
+  removeHostsBlock,
+  startDomainProxy,
+  upsertHostsBlock,
+  type DomainRoute,
+} from './domains.js'
+export {
+  generateSeedSql,
+  mockRow,
+  orderModels,
+  parsePrismaModels,
+  planSeed,
+  rowRng,
+  type SeedPlan,
+} from './seed.js'
+export {
+  DASHBOARD_PORT,
+  Dashboard,
+  stripAnsi,
+  teeLog,
+  tailAppLog,
+  type AppStatus,
+  type BootLine,
+  type DashboardApp,
+  type DashboardIssue,
+  type DashboardMeta,
+  type DashboardOptions,
+  type DashboardState,
+  type DatabaseRow,
+} from './dashboard.js'
+export { uiCommand, type UiOptions } from './uiCommand.js'
+export {
+  classifyHost,
+  discoverNetworkGraph,
+  layoutNetwork,
+  renderNetworkSvg,
+  summariseNetwork,
+  type NetworkEdge,
+  type NetworkEdgeKind,
+  type NetworkGraph,
+  type NetworkNode,
+  type NetworkNodeKind,
+  type NetworkService,
+} from './network.js'
 export { Lima, type LimaOptions } from './lima.js'
-export { dev, buildAppEnv, type DevOptions, type DevResult } from './dev.js'
+export { dev, buildAppEnv, buildDevCommandLine, devPidFile, type DevOptions, type DevResult } from './dev.js'
 export { doctor, type DoctorOptions } from './doctor.js'
 export { configSchema, defaultConfig, mergeFlags, parseConfig, type ConfigInput } from './config.js'
 export { resolveConfig, loadProjectConfig } from './loadConfig.js'
@@ -46,6 +106,14 @@ export {
   type VmInfo,
 } from './vm.js'
 export { consoleLogger, createMemoryLogger, c, term } from './logger.js'
+export {
+  detectDatabaseProvider,
+  stackCommand,
+  type StackOptions,
+} from './stackCommand.js'
+export { domainsCommand } from './domainsCommand.js'
+export { networkCommand, type NetworkCommandOptions } from './networkCommand.js'
+export { dataCommand } from './dataCommand.js'
 export {
   MercelleError,
   OrbStackMissingError,

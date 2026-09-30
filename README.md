@@ -62,6 +62,14 @@ Requires [OrbStack](https://orbstack.dev/download) installed and running.
 ## Quick start
 
 ```bash
+mercelle
+```
+
+That's it. From anywhere, mercelle opens the **Run App** picker: every runnable
+project under `~/Developer` (two levels deep), with the apps you run most often
+suggested first. Pick one and it boots inside a Linux VM. Or go direct:
+
+```bash
 cd your-next-app
 mercelle dev
 ```
@@ -79,11 +87,83 @@ mercelle will:
 Your app is live at `http://localhost:3000` and
 `http://mercelle-my-app.orb.local:3000`.
 
+### The web dashboard
+
+When you boot a workspace with `mercelle stack`, mercelle opens a small web
+dashboard (default `http://localhost:4242`) that shows, live:
+
+- **Boot log** — every step of the spin-up as it happens ("spinning up" →
+  "running"),
+- **Apps** — every service running in the VM, its framework, URL, PID and
+  live status,
+- **Local domains** — each app's `app.axxes.local` URL,
+- **Databases** — which database each service uses, and which production DSNs
+  mercelle deliberately withheld,
+- **Suggested apps** — the axxes apps you test most, from your own run history,
+- **Issues** — anything that went wrong along the way, with hints.
+
+A "logs" button tails each app's `/tmp/<service>.log` inside the VM. Attach to
+a running stack from another terminal with `mercelle ui`.
+
+### Network map
+
+Mercelle reads the URLs out of your source and env files to work out which app
+calls which, and which datastore each one talks to. The result is a graph you
+can see in the dashboard under **Network**, or on its own:
+
+```bash
+mercelle network                    # summary + the connections it found
+mercelle network --out map.svg      # write the picture to a file
+mercelle network --json             # the raw graph, for scripting
+```
+
+Apps are laid out left to right by how deep they sit in the dependency chain,
+with databases and third-party hosts on the right. Hover an edge to see the URL
+and the file it came from, so a surprising connection can be traced back.
+
+Everything is inferred by reading files — nothing is booted, no VM is touched,
+and no network calls are made. Every edge carries the file it was found in, so
+you can check it against reality. In particular a connection built at runtime
+from a config value mercelle cannot see will not appear; treat the map as a map
+of what is written down, not a packet capture.
+
+### Local domains (your axxes cloud, locally)
+
+Each service gets `web.axxes.local`-style domains that resolve to the VM.
+To install the mappings system-wide (one sudo prompt):
+
+```bash
+mercelle domains            # print the map and current status
+mercelle domains --install  # write /etc/hosts + flush DNS
+mercelle domains --remove   # clean up later
+```
+
+While `mercelle stack` runs, a small host-side proxy also routes
+`*.axxes.local` → app ports, so the domains work even before `--install`.
+
+### Mock data for QA
+
+mercelle never clones production data — prod DSNs are refused at the door.
+Instead it generates **synthetic data with production shape** from your prisma
+schema: same models, believable names/emails/dates, deterministic across runs.
+
+```bash
+mercelle data          # writes .mercelle/seed/<service>.sql per service
+mercelle data --apply  # also applies inside the VM via prisma db execute
+mercelle data --rows 50
+```
+
 ## Commands
 
 | Command | What it does |
 | --- | --- |
+| `mercelle` | Run App: pick a project from ~/Developer and run it |
+| `mercelle run <path>` | Run a specific project in the VM |
 | `mercelle dev` | Run the dev server in the VM (default) |
+| `mercelle stack` | Boot every service in a workspace and open the web dashboard |
+| `mercelle domains` | Show/install `app.axxes.local` local domains |
+| `mercelle data` | Generate synthetic mock data from prisma schemas |
+| `mercelle ui` | Open the web dashboard for a stack that is already running |
 | `mercelle up` | Create the VM and install the toolchain, without running the app |
 | `mercelle build` | Run your production build inside the VM |
 | `mercelle shell` | Open a shell inside the VM — see what your app actually sees |
@@ -106,6 +186,8 @@ Your app is live at `http://localhost:3000` and
 --package-manager    pnpm | yarn | bun | npm
 --region <id>        Vercel region                (default iad1)
 --forward <list>     Host env vars to forward, comma-separated
+--ui-port <n>        Web dashboard port           (default 4242)
+--no-ui              Disable the web dashboard
 --fresh              Recreate the VM from scratch
 --reinstall          Force a fresh dependency install in the VM
 --no-watch           Don't restart on file changes

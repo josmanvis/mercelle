@@ -75,6 +75,14 @@ export interface MercelleConfig {
   region: string
   /** Exit mercelle when the dev process exits. */
   once: boolean
+  /** Open the web dashboard during `stack`/`ui`. */
+  ui: boolean
+  /** Port the web dashboard listens on. */
+  uiPort: number
+  /** Root directory the Run App picker scans (default ~/Developer). */
+  devRoot: string
+  /** Suffix for local app domains (default axxes.local). */
+  domainSuffix: string
 }
 
 /** Fully resolved config plus derived paths. */
@@ -127,8 +135,8 @@ export interface VmBackend {
   list(): Promise<string[]>
   /** Start a long-running command, returning a handle that can be killed. */
   spawn?(machine: string, command: string, handlers: { onStdout?: (c: Buffer) => void; onStderr?: (c: Buffer) => void; onClose?: (code: number) => void }): { kill: (signal?: NodeJS.Signals) => boolean } | null
-  /** Point the VM's local hostname at a port, when the backend supports it. */
-  setHttpPort?(machine: string, port: number): Promise<void>
+  /** Expose the guest port on the host, when the backend supports remapping it. */
+  setHttpPort?(machine: string, hostPort: number, guestPort?: number): Promise<void>
   /** Print a message about installing this backend. */
   installHint(): string[]
 }

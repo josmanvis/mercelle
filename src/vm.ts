@@ -42,6 +42,26 @@ export const DEFAULT_IGNORES = [
 export const NODE_VERSION = '22'
 
 /**
+ * Shell prelude that puts the nvm-installed Node on PATH.
+ *
+ * `limactl shell ... bash -lc <script>` runs a *non-interactive* login shell.
+ * Ubuntu's ~/.profile sources ~/.bashrc, but .bashrc returns immediately unless
+ * the shell is interactive, so the nvm block mercelle writes there never runs
+ * and `node`/`npm` are "command not found". Sourcing nvm.sh explicitly is the
+ * only reliable way to get the toolchain onto PATH for scripted commands.
+ *
+ * It is guarded and ends in `true`, so it can be joined into an `a && b && c`
+ * chain (devCommandLine) without a dangling separator, and it never short-
+ * circuits the chain when nvm is not installed on the host.
+ */
+export const NODE_PATH_PRELUDE = '{ [ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh"; } || true'
+
+/** Wrap a script so it runs with Node on PATH. */
+export function withNodePath(script: string): string {
+  return `${NODE_PATH_PRELUDE} && ${script}`
+}
+
+/**
  * Map a macOS path to the same path as seen from inside an OrbStack machine.
  * OrbStack mounts the Mac filesystem at /mnt/mac.
  */
@@ -137,9 +157,11 @@ export class VmManager {
 
   /** True when the machine already has the Linux toolchain mercelle needs. */
   private async isProvisioned(): Promise<boolean> {
+    // The node check must run with nvm on PATH, otherwise it always reports
+    // "not installed" and every mercelle dev re-runs the whole toolchain.
     const res = await this.orb.run(
       this.project.machine,
-      'command -v node && command -v git && command -v curl >/dev/null 2>&1',
+      withNodePath('command -v node && command -v git && command -v curl >/dev/null 2>&1'),
       { allowFailure: true },
     )
     return res.code === 0
@@ -157,7 +179,9 @@ export class VmManager {
 
     const pm = this.project.packageManager
     if (pm !== 'npm') {
-      const has = await this.orb.run(this.project.machine, `command -v ${pm}`, { allowFailure: true })
+      const has = await this.orb.run(this.project.machine, withNodePath(`command -v ${pm}`), {
+        allowFailure: true,
+      })
       if (has.code !== 0 || this.config.reinstall) {
         this.log.step(`Installing ${pm} in the VM…`)
         await this.installPackageManager(pm)
@@ -313,9 +337,11 @@ export class VmManager {
 
     this.log.step('Syncing project into the VM…')
     const archive = createTarArchive(this.project.root, this.excludeArgs())
+    // createTarArchive gzips (-czf), so the reader must decompress (-z).
+    // Plain `tar -x` fails with "Archive is compressed" and never syncs.
     const res = await this.orb.run(
       this.project.machine,
-      `mkdir -p ${shellQuote(remoteRoot)} && tar -x -C ${shellQuote(remoteRoot)}`,
+      `mkdir -p ${shellQuote(remoteRoot)} && tar -xz -C ${shellQuote(remoteRoot)}`,
       { input: archive, stream: this.config.verbose },
     )
     if (res.code !== 0) {
@@ -341,7 +367,7 @@ export class VmManager {
 
     const res = await this.orb.run(
       this.project.machine,
-      `cd ${shellQuote(remoteRoot)} && ${command}`,
+      withNodePath(`cd ${shellQuote(remoteRoot)} && ${command}`),
       // allowFailure so a failed install surfaces mercelle's own actionable
       // message rather than a raw command-exit error.
       { stream: true, allowFailure: true },

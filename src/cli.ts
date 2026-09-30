@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { createBackend } from './backend.js'
 import { parseArgs } from './args.js'
 import { discoverCatalog, recordRun } from './catalog.js'
-import { dev } from './dev.js'
+import { dev, buildAppEnvWithReport } from './dev.js'
+import { buildCommandLine } from './build.js'
 import { doctor } from './doctor.js'
 import { MercelleError } from './errors.js'
 import { HELP, VERSION } from './help.js'
@@ -14,7 +15,7 @@ import { resolveConfig } from './loadConfig.js'
 import { Orb } from './orb.js'
 import { pickApp } from './pick.js'
 import { resolveProject } from './project.js'
-import { VmManager, withNodePath } from './vm.js'
+import { VmManager } from './vm.js'
 
 /** Run the CLI. Returns a process exit code instead of calling process.exit. */
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
@@ -105,12 +106,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       const project = resolveProject(cwd)
       const vm = new VmManager({ orb, config, project, logger: log })
       await vm.ensureMachine()
+      await vm.provision()
       const remoteRoot = await vm.remoteRoot()
       await vm.syncToVm(remoteRoot)
       await vm.installDeps(remoteRoot)
+      const { env, rejected } = buildAppEnvWithReport(project, config, config.hostPort ?? config.port)
+      for (const item of rejected) log.warn(item.reason)
       const res = await orb.run(
         project.machine,
-        withNodePath(`cd '${remoteRoot}' && ${project.buildCommand}`),
+        buildCommandLine(remoteRoot, env, project.buildCommand),
         { stream: true },
       )
       return res.code

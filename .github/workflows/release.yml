@@ -47,8 +47,6 @@ jobs:
             exit 0
           fi
           npm publish --access public --provenance
-        # NODE_AUTH_TOKEN is intentionally unset: Trusted Publishing
-        # authenticates via OIDC. If you would rather use a token, set the
-        # NPM_TOKEN secret and uncomment the env block below.
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # NODE_AUTH_TOKEN is deliberately absent. An empty or stale token makes
+        # npm fall back to token auth and fail, which defeats Trusted Publishing.
+        # See docs/releasing.md for the token-based alternative.

@@ -48,7 +48,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx src/cli.ts",
-    "mercelle": "tsx src/cli.ts",
     "type-check": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run",

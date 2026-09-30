@@ -150,11 +150,48 @@ describe('shellQuote', () => {
 
 describe('toEnvPrefix', () => {
   it('renders export statements', () => {
-    expect(toEnvPrefix({ A: '1', B: '2' })).toBe("export A='1'; export B='2'; ")
+    expect(toEnvPrefix({ A: '1', B: '2' })).toBe("export A='1'; export B='2'")
+  })
+
+  it('emits no trailing separator so it can be joined with &&', () => {
+    // Regression: the old value ended in "; ", so joining with " && " produced
+    // "…; && exec …" and bash died with "syntax error near unexpected token &&".
+    const prefix = toEnvPrefix({ A: '1' })
+    expect(prefix).not.toMatch(/;\s*$/)
+    expect(`cd /app && ${prefix} && exec node server.js`).toMatch(/&& exec node server\.js$/)
   })
 
   it('returns an empty string for no variables', () => {
     expect(toEnvPrefix({})).toBe('')
+  })
+
+  it('keeps ${PATH} expandable instead of quoting it literally', () => {
+    // Regression: single-quoting '${PATH}' made the shell store those literal
+    // characters, wiping the real PATH — the VM lost the nvm Node directory and
+    // every command failed with "exec: tsx: not found".
+    const prefix = toEnvPrefix({ PATH: '/app/node_modules/.bin:${PATH}' })
+    expect(prefix).toContain('"')
+    expect(prefix).not.toMatch(/'\$\{PATH\}'/)
+  })
+
+  it('still single-quotes values with no variable reference', () => {
+    // Values without a `$` reference keep the safest form.
+    expect(toEnvPrefix({ X: 'a"b' })).toBe(`export X='a"b'`)
+    expect(toEnvPrefix({ Y: "it's" })).toBe(`export Y='it'\\''s'`)
+    // A bare $NAME is a reference too, so it must stay expandable.
+    expect(toEnvPrefix({ Z: 'prefix-$HOME' })).toBe('export Z="prefix-$HOME"')
+  })
+
+  it('escapes quotes and backslashes around an expanded reference', () => {
+    const prefix = toEnvPrefix({ P: 'a"b\\c:${PATH}' })
+    // Double-quoted, so the embedded " and \ must be escaped to survive.
+    expect(prefix).toBe('export P="a\\"b\\\\c:${PATH}"')
+  })
+
+  it('produces a PATH line a real shell expands correctly', () => {
+    // End-to-end shape check without a VM: bash must see a value that expands.
+    const prefix = toEnvPrefix({ PATH: '/app/node_modules/.bin:${PATH}' })
+    expect(`${prefix}`).toMatch(/^export PATH="\/app\/node_modules\/\.bin:\$\{PATH\}"$/)
   })
 })
 

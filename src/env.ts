@@ -230,9 +230,45 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-/** Render an env object as `KEY='value'` pairs prefixed to a command. */
+/**
+ * Render an env object as `export KEY='value'` statements.
+ *
+ * No trailing separator is emitted: callers chain this into `a && b && c`, and a
+ * trailing `;` there produces "syntax error near unexpected token `&&'".
+ * Each `export` is already a complete statement, so they need no separator.
+ *
+ * `${VAR}` references are preserved rather than quoted away. A caller that wants
+ * to *extend* an existing variable (PATH is the common case) passes
+ * `${PATH}`; single-quoting it would store the six literal characters
+ * `${PATH}` and silently discard the real value, leaving the VM with a PATH
+ * that has no `node` on it. Such values are emitted double-quoted with the
+ * `$` escaped, so the shell expands the reference while every other character
+ * stays literal and injection-safe.
+ */
 export function toEnvPrefix(env: Record<string, string>): string {
   const entries = Object.entries(env)
   if (entries.length === 0) return ''
-  return `${entries.map(([k, v]) => `export ${k}=${shellQuote(v)}`).join('; ')}; `
+  return entries.map(([k, v]) => `export ${k}=${quoteEnvValue(v)}`).join('; ')
+}
+
+/** Matches a `${VAR}` / `$VAR` reference anywhere in a value. */
+const ENV_REFERENCE = /\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*/
+
+/**
+ * Quote an env value for a double-quoted shell context when it embeds a
+ * variable reference, otherwise fall back to the safe single-quoted form.
+ *
+ * Double quotes still expand `$`, backticks and `\`, so the value is escaped
+ * for all of them except the `$` that begins a genuine reference.
+ */
+function quoteEnvValue(value: string): string {
+  if (!ENV_REFERENCE.test(value)) return shellQuote(value)
+
+  // Protect existing backslashes and double quotes, then un-escape only the
+  // `$` that introduces a reference so the shell expands it.
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, '$$$1')
+  return `"${escaped}"`
 }

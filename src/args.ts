@@ -21,6 +21,12 @@ export const VALUE_FLAGS = new Set([
   'backend',
   'region',
   'forward',
+  'ui-port',
+  'dev-root',
+  'domain-suffix',
+  'rows',
+  'out',
+  'lines',
 ])
 
 /** Map CLI flag names onto config keys. */
@@ -38,6 +44,9 @@ const FLAG_TO_KEY: Record<string, keyof MercelleConfig> = {
   backend: 'backend',
   region: 'region',
   forward: 'forwardEnv',
+  'ui-port': 'uiPort',
+  'dev-root': 'devRoot',
+  'domain-suffix': 'domainSuffix',
 }
 
 /** Minimal argv parser: `--flag value`, `--flag=value`, `--no-flag`. */
@@ -98,7 +107,7 @@ export function coerceFlags(flags: Record<string, unknown>): Record<string, unkn
           : value
       continue
     }
-    if (name === 'cpus' || name === 'memory' || name === 'port' || name === 'host-port') {
+    if (name === 'cpus' || name === 'memory' || name === 'port' || name === 'host-port' || name === 'ui-port') {
       out[key] = Number(value)
       continue
     }

@@ -25,12 +25,25 @@
   "keywords": [
     "vercel",
     "orbstack",
-    "vm",
+    "lima",
     "linux",
+    "vm",
     "dev",
-    "ci",
+    "dev-environment",
+    "hot-reload",
+    "local-development",
+    "predeploy",
+    "vpc",
     "docker",
-    "cross-platform"
+    "cross-platform",
+    "vercel-compatible",
+    "monorepo",
+    "qa",
+    "testing",
+    "native-modules",
+    "typescript",
+    "cli",
+    "developer-tools"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -52,5 +65,18 @@
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mercelle-dev/mercelle.git"
+  },
+  "homepage": "https://github.com/mercelle-dev/mercelle#readme",
+  "bugs": {
+    "url": "https://github.com/mercelle-dev/mercelle/issues"
+  },
+  "author": "mercelle contributors",
+  "funding": "https://github.com/sponsors/mercelle-dev",
+  "publishConfig": {
+    "access": "public"
   }
 }

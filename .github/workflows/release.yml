@@ -1,0 +1,40 @@
+name: Release
+
+# Publishing is manual and gated: a tag is the only thing that can publish.
+# This keeps an accidental push to main from shipping to npm.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # provenance / trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run test:run
+      - run: npm run build
+
+      - name: Make sure the tag and package.json agree
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          actual=$(node -p "require('./package.json').version")
+          if [ "$tag" != "$actual" ]; then
+            echo "tag $tag does not match package.json $actual"
+            exit 1
+          fi
+
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

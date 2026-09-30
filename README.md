@@ -1,11 +1,17 @@
+---
+
 # mercelle
 
-**Your Vercel dev server, but in a real Linux VM — running on OrbStack.**
+**Your Vercel dev server, but in a real Linux VM — running on your Mac.**
 
-`mercelle` runs your app inside a lightweight Linux virtual machine on your Mac.
-Node, native modules, the filesystem, the CPU architecture — all Linux, exactly
-like production. But it boots in seconds, forwards ports to `localhost`, and
-feeds you the Vercel environment variables your code expects.
+`mercelle` runs your app inside a lightweight Linux virtual machine. Node,
+native modules, the filesystem, the CPU architecture — all Linux, exactly like
+production. But it boots in seconds, forwards ports to `localhost`, and feeds
+you the Vercel environment variables your code expects.
+
+**The rule it exists to enforce: never declare a change verified on macOS
+alone.** Vercel runs Linux. Your Mac does not. Everything between those two
+facts is where production bugs live.
 
 It exists to catch the class of bugs that only show up *after* you deploy:
 
@@ -57,7 +63,33 @@ forwards ports to `localhost` automatically, so your app is just
 npm install -g mercelle
 ```
 
-Requires [OrbStack](https://orbstack.dev/download) installed and running.
+Requires [OrbStack](https://orbstack.dev/download) installed and running
+(the recommended backend), or [Lima](https://lima-vm.io) on older Intel Macs.
+`mercelle doctor` tells you exactly what is missing.
+
+## The workflow
+
+**Anything that will run on a real Vercel account should be proven on mercelle
+first.** That is the whole idea, and the rest of the tool exists to make it fast.
+
+```bash
+# 1. Bring an app up in Linux, the way a deployment would.
+cd ~/Developer/axxes/web
+mercelle up                     # or: mercelle up ~/Developer/axxes/web
+
+# 2. Watch everything it does, across every app.
+mercelle logs
+
+# 3. See how your services are wired before a request ever flies.
+mercelle network
+
+# 4. Tear down when you're done.
+mercelle down
+```
+
+`mercelle up` is not a watcher. It boots the VM, syncs the source, installs
+Linux dependencies, starts the app **in the background**, prints the URL, and
+returns — so it behaves like a deploy, and a CI step or script can call it.
 
 ## Quick start
 
@@ -66,8 +98,8 @@ mercelle
 ```
 
 That's it. From anywhere, mercelle opens the **Run App** picker: every runnable
-project under `~/Developer` (two levels deep), with the apps you run most often
-suggested first. Pick one and it boots inside a Linux VM. Or go direct:
+project under `~/Developer`, with the apps you run most often suggested first.
+Pick one and it boots inside a Linux VM. Or go direct:
 
 ```bash
 cd your-next-app
